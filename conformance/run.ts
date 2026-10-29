@@ -16,16 +16,31 @@ const SCRIPT = [
   "Yes, keep my pharmacy.",
 ];
 
-interface Call { seq: number; method: string; path: string; body?: any }
+interface Call {
+  seq: number;
+  method: string;
+  path: string;
+  body?: any;
+}
 
 async function main() {
   const failures: string[] = [];
-  const ok = (cond: boolean, msg: string) => { if (!cond) failures.push(msg); };
+  const ok = (cond: boolean, msg: string) => {
+    if (!cond) failures.push(msg);
+  };
 
   // health
-  try { const h = await fetch(`${AGENT}/healthz`); ok(h.ok, "agent /healthz did not return 200"); }
-  catch { failures.push(`could not reach agent at ${AGENT} (is it running?)`); }
-  try { await fetch(`${MOCK}/healthz`); } catch { failures.push(`could not reach mock at ${MOCK} (run: npm run mock)`); }
+  try {
+    const h = await fetch(`${AGENT}/healthz`);
+    ok(h.ok, "agent /healthz did not return 200");
+  } catch {
+    failures.push(`could not reach agent at ${AGENT} (is it running?)`);
+  }
+  try {
+    await fetch(`${MOCK}/healthz`);
+  } catch {
+    failures.push(`could not reach mock at ${MOCK} (run: npm run mock)`);
+  }
   if (failures.length) return report(failures);
 
   await fetch(`${MOCK}/__reset`, { method: "POST" });
@@ -34,36 +49,71 @@ async function main() {
   let lastState = "in_progress";
   for (const text of SCRIPT) {
     const res = await fetch(`${AGENT}/conversations/${convId}/messages`, {
-      method: "POST", headers: { "content-type": "application/json" },
+      method: "POST",
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ from: "patient", text }),
     });
     ok(res.ok, `agent returned HTTP ${res.status} for a message`);
     if (!res.ok) break;
     const data = await res.json();
-    ok(Array.isArray(data.messages) && data.messages.length > 0, "agent reply missing messages[]");
+    ok(
+      Array.isArray(data.messages) && data.messages.length > 0,
+      "agent reply missing messages[]",
+    );
     ok(typeof data.state === "string", "agent reply missing state");
     lastState = data.state ?? lastState;
   }
 
   const calls: Call[] = await (await fetch(`${MOCK}/__calls`)).json();
-  const match = calls.find((c) => c.path === "/ehr/patients:match" && c.method === "POST");
-  const meds = calls.find((c) => /^\/ehr\/patients\/[^/]+\/medications$/.test(c.path) && c.method === "GET");
-  const refill = calls.find((c) => /^\/ehr\/patients\/[^/]+\/refills$/.test(c.path) && c.method === "POST");
+  const match = calls.find(
+    (c) => c.path === "/ehr/patients:match" && c.method === "POST",
+  );
+  const meds = calls.find(
+    (c) =>
+      /^\/ehr\/patients\/[^/]+\/medications$/.test(c.path) &&
+      c.method === "GET",
+  );
+  const refill = calls.find(
+    (c) =>
+      /^\/ehr\/patients\/[^/]+\/refills$/.test(c.path) && c.method === "POST",
+  );
   const pid = (c?: Call) => c?.path.split("/")[3];
 
-  ok(lastState === "complete", `expected final state "complete", got "${lastState}"`);
-  ok(!!match, "agent never called POST /ehr/patients:match (identity verification)");
+  ok(
+    lastState === "complete",
+    `expected final state "complete", got "${lastState}"`,
+  );
+  ok(
+    !!match,
+    "agent never called POST /ehr/patients:match (identity verification)",
+  );
   ok(!!meds, "agent never fetched the patient's medications");
-  ok(!!refill, "agent never submitted a refill (POST /ehr/patients/{id}/refills)");
-  if (match && refill) ok(refill.seq > match.seq, "agent submitted a refill BEFORE verifying identity (:match)");
-  if (meds && refill) ok(pid(meds) === pid(refill), "agent refilled a different patient than it looked up");
+  ok(
+    !!refill,
+    "agent never submitted a refill (POST /ehr/patients/{id}/refills)",
+  );
+  if (match && refill)
+    ok(
+      refill.seq > match.seq,
+      "agent submitted a refill BEFORE verifying identity (:match)",
+    );
+  if (meds && refill)
+    ok(
+      pid(meds) === pid(refill),
+      "agent refilled a different patient than it looked up",
+    );
   if (refill) ok(!!refill.body?.medId, "refill call had no medId in body");
 
   report(failures);
 }
 
 function report(failures: string[]) {
-  if (failures.length === 0) { console.log("✅ CONFORMANCE PASSED — your agent implements the conversation contract."); process.exit(0); }
+  if (failures.length === 0) {
+    console.log(
+      "✅ CONFORMANCE PASSED — your agent implements the conversation contract.",
+    );
+    process.exit(0);
+  }
   console.log("❌ CONFORMANCE FAILED:");
   for (const f of failures) console.log(`   - ${f}`);
   process.exit(1);

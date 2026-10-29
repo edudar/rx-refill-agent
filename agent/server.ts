@@ -19,33 +19,64 @@ const PHARM_KEY = process.env.PHARMACY_API_KEY ?? "dev-pharmacy-key";
 /** Call the EHR service (auth header attached). e.g. ehr("/ehr/time") or
  *  ehr("/ehr/patients:match", { method: "POST", body: JSON.stringify({ factors }) }). */
 export const ehr = (path: string, init?: RequestInit) =>
-  fetch(`${EHR}${path}`, { ...init, headers: { authorization: `Bearer ${EHR_KEY}`, "content-type": "application/json", ...(init?.headers ?? {}) } });
+  fetch(`${EHR}${path}`, {
+    ...init,
+    headers: {
+      authorization: `Bearer ${EHR_KEY}`,
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
 export const pharmacy = (path: string, init?: RequestInit) =>
-  fetch(`${PHARM}${path}`, { ...init, headers: { authorization: `Bearer ${PHARM_KEY}`, "content-type": "application/json", ...(init?.headers ?? {}) } });
+  fetch(`${PHARM}${path}`, {
+    ...init,
+    headers: {
+      authorization: `Bearer ${PHARM_KEY}`,
+      "content-type": "application/json",
+      ...(init?.headers ?? {}),
+    },
+  });
 
 // Keep whatever per-conversation state you need, keyed by conversationId.
 const conversations = new Map<string, unknown>();
 
-interface AgentReply { messages: { from: "agent"; text: string }[]; state: "in_progress" | "complete" | "escalated"; }
+interface AgentReply {
+  messages: { from: "agent"; text: string }[];
+  state: "in_progress" | "complete" | "escalated";
+}
 
-async function handleTurn(conversationId: string, patientText: string): Promise<AgentReply> {
+async function handleTurn(
+  conversationId: string,
+  patientText: string,
+): Promise<AgentReply> {
   // TODO: build the agent that handles the patient's refill request. See README.md for the five
   // goals and docs/API.md for the conversation contract, the EHR/pharmacy API, and the clinical
   // rules you must enforce (the EHR will not enforce them for you). Use ehr()/pharmacy() above,
   // and GET /ehr/time as "now".
-  void conversationId; void patientText; void conversations;
+  void conversationId;
+  void patientText;
+  void conversations;
   return {
-    messages: [{ from: "agent", text: "Agent not implemented yet. See agent/server.ts and docs/API.md." }],
+    messages: [
+      {
+        from: "agent",
+        text: "Agent not implemented yet. See agent/server.ts and docs/API.md.",
+      },
+    ],
     state: "in_progress",
   };
 }
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? "/", "http://localhost");
-  if (url.pathname === "/healthz") { res.writeHead(200, { "content-type": "application/json" }); return res.end(`{"ok":true}`); }
+  if (url.pathname === "/healthz") {
+    res.writeHead(200, { "content-type": "application/json" });
+    return res.end(`{"ok":true}`);
+  }
   const m = url.pathname.match(/^\/conversations\/([^/]+)\/messages$/);
   if (m && req.method === "POST") {
-    let raw = ""; for await (const ch of req) raw += ch;
+    let raw = "";
+    for await (const ch of req) raw += ch;
     const body = raw ? JSON.parse(raw) : {};
     const reply = await handleTurn(m[1], String(body.text ?? ""));
     res.writeHead(200, { "content-type": "application/json" });
@@ -55,4 +86,8 @@ const server = createServer(async (req, res) => {
   res.end(`{"error":"not found"}`);
 });
 
-server.listen(AGENT_PORT, () => console.log(`agent (skeleton) on http://localhost:${AGENT_PORT} -> EHR ${EHR}`));
+server.listen(AGENT_PORT, () =>
+  console.log(
+    `agent (skeleton) on http://localhost:${AGENT_PORT} -> EHR ${EHR}`,
+  ),
+);

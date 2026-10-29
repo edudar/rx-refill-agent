@@ -2,9 +2,9 @@
 
 Two things you interact with:
 
-1. **The conversation endpoint** — *you implement this*. The grader (and the conformance check)
+1. **The conversation endpoint** — _you implement this_. The grader (and the conformance check)
    talks to your agent here.
-2. **The EHR + Pharmacy services** — *provided* (`npm run mock`). Your agent calls these to read
+2. **The EHR + Pharmacy services** — _provided_ (`npm run mock`). Your agent calls these to read
    patient data and take actions.
 
 All services are local HTTP. Config comes from env (see `.env` usage in the skeleton):
@@ -23,6 +23,7 @@ POST /conversations/{conversationId}/messages
 
 GET  /healthz  ->  200 when ready
 ```
+
 - You receive patient messages one at a time for a `conversationId` and return your agent's
   reply turn(s). Maintain per-conversation state keyed by `conversationId`.
 - `state`: `in_progress` (you expect more), `complete` (request resolved), `escalated` (you're
@@ -55,6 +56,7 @@ resolve to a patient (and never returns demographic data). How many factors to r
 to handle no-match / ambiguous-match, is your design.
 
 `Medication`:
+
 ```
 { "medId", "name", "isControlled": bool, "schedule": "CII".."CV"|null,
   "lastFilledDate", "daysSupply": int, "refillsRemaining": int, "rxExpirationDate",
@@ -69,10 +71,12 @@ reproducible).
 ## 3. Pharmacy service (provided)
 
 Send `Authorization: Bearer ${PHARMACY_API_KEY}`.
+
 ```
 GET /pharmacy/directory?q=<search>  -> [ { pharmacyId, name, address } ]
 ```
-The patient's *current* pharmacy and changes are on the EHR patient record (§2).
+
+The patient's _current_ pharmacy and changes are on the EHR patient record (§2).
 
 ---
 
@@ -92,6 +96,7 @@ The EHR does **not** enforce these — your agent must. Evaluate against `GET /e
 ---
 
 ## 5. Running things
+
 ```
 npm install
 npm run mock          # EHR + pharmacy on :4010
