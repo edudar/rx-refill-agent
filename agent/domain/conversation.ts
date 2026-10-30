@@ -1,5 +1,9 @@
 import type { PatientRecord } from "../contracts/ehr.js";
-import type { AgentReply, AgentReplyState } from "../contracts/conversation.js";
+import type {
+  AgentReply,
+  AgentReplyState,
+  ConversationMessage,
+} from "../contracts/conversation.js";
 import type { IdentityFactors } from "./identity.js";
 
 export interface AuthenticationSession {
@@ -14,6 +18,7 @@ export interface AuthenticationSession {
 }
 
 export interface Conversation extends AuthenticationSession {
+  history: ConversationMessage[];
   state: AgentReplyState;
   lastReply?: AgentReply;
   lastPrompt: string;

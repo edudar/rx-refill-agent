@@ -1,21 +1,22 @@
-import type {
-  AgentReply,
-  AgentReplyState,
-  ConversationStep,
-} from "./contracts/conversation.js";
+import type { AgentReply, ConversationStep } from "./contracts/conversation.js";
 import type { EhrClient, PatientRecord } from "./contracts/ehr.js";
 import {
   identityUpdateSchema,
   type IdentityExtractor,
 } from "./contracts/identity-extraction.js";
 import {
+  generatedResponseSchema,
+  type AuthenticationDecision,
+  type ResponseGenerator,
+} from "./contracts/response-generation.js";
+import {
   completeIdentitySchema,
   identityFieldSchemas,
   type CompleteIdentity,
-  type IdentityFactors,
+  type IdentityField,
 } from "./domain/identity.js";
 import { normalizeDateOfBirth } from "./domain/date-of-birth.js";
-import { createMissingIdentityPrompt } from "./authentication-prompts.js";
+import { responseFallback } from "./response-fallback.js";
 
 const required = ["firstName", "lastName", "dob", "zip"] as const;
 
@@ -32,16 +33,46 @@ function matchesFactors(patient: PatientRecord, factors: CompleteIdentity) {
 
 export function createAuthenticationFlow(options: {
   extractIdentity: IdentityExtractor;
+  generateResponse: ResponseGenerator;
   ehr: EhrClient;
 }): ConversationStep {
   return async (conversation, text) => {
-    const reply = (
-      message: string,
-      state: AgentReplyState = "in_progress",
-    ): AgentReply => ({
-      messages: [{ from: "agent", text: message }],
-      state,
+    const received: IdentityField[] = [];
+    const invalid: IdentityField[] = [];
+    const decisionFor = (
+      action: AuthenticationDecision["action"],
+      requestedFields: IdentityField[] = [],
+    ): AuthenticationDecision => ({
+      action,
+      acceptedFields: Object.keys(conversation.factors) as IdentityField[],
+      newlyReceivedFields: received,
+      requestedFields,
+      invalidFields: invalid,
+      failedMatchAttempts: conversation.failedMatches,
+      unansweredRequests: conversation.identityPrompt?.unansweredTurns ?? 0,
     });
+    const respond = async (
+      action: AuthenticationDecision["action"],
+      requestedFields: IdentityField[] = [],
+    ): Promise<AgentReply> => {
+      const decision = decisionFor(action, requestedFields);
+      const state = action === "escalate" ? "escalated" : "in_progress";
+      let responseText: string;
+      try {
+        const generated = await options.generateResponse({
+          decision: structuredClone(decision),
+          messages: conversation.history.map(({ from, text }) => ({
+            from,
+            text,
+          })),
+        });
+        responseText = generatedResponseSchema.parse(generated).text;
+      } catch {
+        responseText = responseFallback(decision);
+      }
+      return { messages: [{ from: "agent", text: responseText }], state };
+    };
+
     try {
       const update = identityUpdateSchema.parse(
         await options.extractIdentity({
@@ -50,14 +81,28 @@ export function createAuthenticationFlow(options: {
           lastPrompt: conversation.lastPrompt,
         }),
       );
-      // The model proposes facts; it cannot mark this conversation authenticated.
-      const invalid: (keyof IdentityFactors)[] = [];
-      const received: (keyof IdentityFactors)[] = [];
+      // Hard scope redirects never invoke the response generator or change identity.
+      if (update.outOfScope) {
+        const missing = required.filter(
+          (field) => !conversation.factors[field],
+        );
+        const followUp = missing.length
+          ? responseFallback(decisionFor("request_identity", missing))
+          : "Let me know when you'd like to continue verifying your identity.";
+        return {
+          messages: [
+            {
+              from: "agent",
+              text: `I can help with prescription refills and pharmacy changes. ${followUp}`,
+            },
+          ],
+          state: "in_progress",
+        };
+      }
       for (const field of Object.keys(
         identityFieldSchemas,
-      ) as (keyof IdentityFactors)[]) {
+      ) as IdentityField[]) {
         const value = update[field];
-        if (update.outOfScope) continue;
         if (value === null) continue;
         const parsed = identityFieldSchemas[field].safeParse(
           field === "dob" ? normalizeDateOfBirth(value) : value,
@@ -71,63 +116,63 @@ export function createAuthenticationFlow(options: {
         }
       }
       const missing = required.filter((field) => !conversation.factors[field]);
-      const needed = [...new Set([...missing, ...invalid])];
-      if (needed.length)
-        return reply(
-          createMissingIdentityPrompt({
-            conversation,
-            needed,
-            received,
-            invalid,
-            topic: update.topic,
-            outOfScope: update.outOfScope,
-          }),
+      const needed = [...new Set<IdentityField>([...missing, ...invalid])];
+      if (needed.length) {
+        const previous = conversation.identityPrompt;
+        const sameRequest =
+          previous?.fields.length === needed.length &&
+          needed.every((field) => previous.fields.includes(field));
+        conversation.identityPrompt = {
+          fields: needed,
+          unansweredTurns:
+            sameRequest && !received.length && !invalid.length
+              ? previous.unansweredTurns + 1
+              : 0,
+        };
+        return respond(
+          invalid.length ? "request_correction" : "request_identity",
+          needed,
         );
-      if (update.outOfScope)
-        return reply(
-          "I can help with prescription refills and pharmacy changes. Let me know when you'd like to continue verifying your identity.",
-        );
-      delete conversation.identityPrompt;
+      }
+
       const factors = completeIdentitySchema.parse(conversation.factors);
       const fingerprint = JSON.stringify(
         [...required, "phoneLast4" as const].map(
           (field) => conversation.factors[field] ?? null,
         ),
       );
-      if (fingerprint === conversation.lastFailedFactors)
-        return reply(
-          "I couldn't verify those details. Please check and correct your full name, date of birth, or ZIP code. You can also provide or correct your phone's last four digits.",
-        );
+      if (fingerprint === conversation.lastFailedFactors) {
+        if (
+          !factors.phoneLast4 &&
+          conversation.identityPrompt?.fields.includes("phoneLast4")
+        ) {
+          conversation.identityPrompt.unansweredTurns++;
+          return respond("request_disambiguation", ["phoneLast4"]);
+        }
+        return respond("verification_failed", [...required]);
+      }
+      delete conversation.identityPrompt;
       const match = await options.ehr.match(factors);
       if (match.count !== 1 || !match.patientId) {
         conversation.failedMatches++;
         conversation.lastFailedFactors = fingerprint;
-        if (conversation.failedMatches >= 3) {
-          return reply(
-            "I couldn't verify your identity after several attempts. Please contact your care team for help.",
-            "escalated",
-          );
+        if (conversation.failedMatches >= 3) return respond("escalate");
+        if (match.count > 1 && !factors.phoneLast4) {
+          conversation.identityPrompt = {
+            fields: ["phoneLast4"],
+            unansweredTurns: 0,
+          };
+          return respond("request_disambiguation", ["phoneLast4"]);
         }
-        if (match.count > 1 && !conversation.factors.phoneLast4)
-          return reply(
-            "I need one more detail to verify your identity. What are the last four digits of your phone number?",
-          );
-        return reply(
-          "I couldn't verify those details. Please check your full name, date of birth, and ZIP code, and send any corrections.",
-        );
+        return respond("verification_failed", [...required]);
       }
       const patient = await options.ehr.getPatient(match.patientId);
       if (!matchesFactors(patient, factors))
         throw new Error("Patient record does not match supplied identity");
       conversation.patient = patient;
-      return reply(
-        "Thanks, your identity is verified. Which prescription would you like to refill?",
-      );
+      return respond("identity_verified");
     } catch {
-      // Do not expose upstream responses, credentials, or demographic information.
-      return reply(
-        "I'm having trouble verifying your identity right now. Please try again in a moment.",
-      );
+      return respond("verification_unavailable");
     }
   };
 }

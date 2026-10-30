@@ -39,8 +39,11 @@ Git. `npm run agent` reads exported environment variables and does not load `.en
 
 - Model provider + model id + version: OpenAI Responses API; set the desired model
   ID/version using `OPENAI_MODEL`. No live model run has been validated yet.
-- Settings: Structured Outputs, `store: false`, 512 maximum output tokens,
-  15-second model timeout, no automatic model retries.
+- Settings: Structured Outputs, `store: false`, 512 maximum output tokens for
+  extraction and 1,024 for response generation; 15-second timeout per model call,
+  with no automatic model retries. Both stages use the same configured model and
+  reasoning effort. Conformance allows 45 seconds per HTTP request for both stages
+  and EHR calls.
   Reasoning effort is selected through `OPENAI_REASONING_EFFORT`; when unset,
   the model's default applies.
 
@@ -63,14 +66,28 @@ such as `03/04/1988`, two-digit years, or impossible dates trigger a request to 
 out the month. No locale is inferred from ZIP code or phone number. Initial prompts
 ask for DOB without requiring a particular format.
 
-Authentication follow-ups acknowledge newly accepted details by field name, ask
-only for outstanding details, and join lists with "and." The existing extraction
-call also classifies the message topic, allowing a pharmacy confirmation to be
-acknowledged and deferred until verification rather than treated as identity data.
-No additional model call is used. Prompts and the verification gate remain controlled
-by application code; topic classification cannot authorize a pharmacy change or refill.
-Repeated unanswered requests explain what is still missing and then offer the care
-team as an option, without discarding collected details or claiming a handoff occurred.
+Authentication uses two calls to the same configured model: extract identity
+fields and scope, then phrase the application's decision. Application code decides
+which fields are accepted, missing, or invalid; whether a unique match succeeded;
+and whether to request corrections, retry, or escalate. The response-generation
+brief contains field names and these decisions, not retrieved patient data. The
+model receives the last 12 conversation messages to acknowledge context, handle
+reluctance or questions, and avoid repeating itself. It can acknowledge an already
+named prescription rather than asking for it again.
+
+`response-generator.ts` returns only text. Workflow state and tool access remain
+under application control. Malformed, refused, incomplete, or failed generation
+uses short fallbacks appropriate to the existing decision. A response-generation
+failure after successful matching does not undo verification or repeat EHR calls.
+Hard out-of-scope requests receive a short application-generated redirect without
+invoking the response generator or accepting identity updates from that message.
+The former topic enum and manually composed normal conversation prompts are removed.
+
+Structured output validates shape, not the truth of every generated sentence.
+The response instructions constrain claims to the application's decision, while
+conformance checks such as `missing-zip` detect unsupported verification/submission
+claims and unauthorized service calls. Prompt and conversation evaluations remain
+necessary; textual compliance is not guaranteed by JSON-schema validation.
 
 It fetches a patient record only after a unique match, requesting phone last four
 digits if needed to disambiguate. Three failed match attempts stop the conversation with a
@@ -79,11 +96,14 @@ care-team handoff message; no external handoff integration is implemented yet.
 OpenAI extracts identity fields using
 [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
 The application validates those fields and controls EHR access. The model has no
-tools, receives no retrieved patient record, and cannot declare identity verified.
-The extraction request uses `store: false`; identity details supplied in chat are
-still sent to OpenAI for extraction. Unrelated requests receive a fixed redirect.
+tools, receives no retrieved patient record, and cannot set verification state.
+Both model requests use `store: false`. Identity details supplied in chat are
+sent to OpenAI for extraction and may appear in the recent dialogue supplied to
+response generation. Retrieved EHR records and service configuration are not passed
+as response-generation input. Unrelated requests receive a fixed redirect.
 
-Conversation state is held in memory and is discarded on restart. Cleanup runs
+Conversation state includes at most 12 recent messages, is held in memory, and is
+discarded on restart. Cleanup runs
 before each turn: conversations expire 24 hours after creation, even if recently
 active. The store retains at most 100 conversations, evicting the least recently
 used idle conversation when a new ID would exceed that limit. In-flight turns
@@ -153,8 +173,10 @@ planned, not implemented yet.
   the supplied environment only when called; importing the module has no startup effects.
 - `agent/identity-extractor.ts` implements OpenAI extraction; `agent/ehr.ts`
   implements the EHR client; `agent/authentication.ts` enforces the identity workflow.
-- `agent/authentication-prompts.ts` composes contextual authentication follow-ups
-  using accepted fields, validation errors, message topic, and unanswered requests.
+- `agent/contracts/response-generation.ts` owns application-decision and generated-text
+  contracts. `agent/response-generator.ts` phrases those decisions using recent dialogue;
+  `agent/response-fallback.ts` supplies short replies only when generation fails.
+- `agent/openai-client.ts` centralizes SDK transport settings for extraction and generation.
 - `agent/conversation-handler.ts` owns conversation storage, expiration, turn
   serialization, terminal states, and routing. Authentication is one workflow step;
   a separate handler can continue the conversation after authentication.

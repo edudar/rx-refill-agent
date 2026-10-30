@@ -9,6 +9,8 @@ export const identityFieldSchemas = {
 };
 
 export const identityFactorsSchema = z.object(identityFieldSchemas).partial();
+export const identityFieldSchema = z.object(identityFieldSchemas).keyof();
+export type IdentityField = z.infer<typeof identityFieldSchema>;
 export const completeIdentitySchema = identityFactorsSchema.required({
   firstName: true,
   lastName: true,

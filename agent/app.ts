@@ -5,6 +5,7 @@ import { createConsoleConversationLogger } from "./conversation-logger.js";
 import { loadConfig } from "./config.js";
 import { createEhrClient } from "./ehr.js";
 import { createIdentityExtractor } from "./identity-extractor.js";
+import { createResponseGenerator } from "./response-generator.js";
 
 const config = loadConfig(process.env);
 const handleTurn = createConversationHandler({
@@ -13,6 +14,7 @@ const handleTurn = createConversationHandler({
     : undefined,
   authenticate: createAuthenticationFlow({
     extractIdentity: createIdentityExtractor(config.openai),
+    generateResponse: createResponseGenerator(config.openai),
     ehr: createEhrClient(config.ehr),
   }),
 });

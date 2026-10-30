@@ -54,6 +54,7 @@ export function createConversationHandler(options: {
       }
       conversation = {
         factors: {},
+        history: [],
         lastPrompt: "",
         failedMatches: 0,
         state: "in_progress",
@@ -63,6 +64,10 @@ export function createConversationHandler(options: {
       conversations.set(id, conversation);
     }
     conversation.touchedAt = timestamp;
+    conversation.history = [
+      ...conversation.history,
+      { from: "patient" as const, text },
+    ].slice(-12);
 
     let reply: AgentReply;
     if (conversation.state !== "in_progress") {
@@ -95,6 +100,9 @@ export function createConversationHandler(options: {
     conversation.state = reply.state;
     conversation.lastReply = reply;
     conversation.lastPrompt = reply.messages.at(-1)?.text ?? "";
+    conversation.history = [...conversation.history, ...reply.messages].slice(
+      -12,
+    );
     return reply;
   }
 

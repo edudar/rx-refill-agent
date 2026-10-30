@@ -3,6 +3,10 @@ import test from "node:test";
 import { createAuthenticationFlow } from "./authentication.js";
 import { createConversationHandler } from "./conversation-handler.js";
 
+import type {
+  ResponseGenerator,
+  ResponseGenerationInput,
+} from "./contracts/response-generation.js";
 import type { EhrClient, PatientRecord } from "./contracts/ehr.js";
 import type {
   ExtractionInput,
@@ -10,19 +14,30 @@ import type {
 } from "./contracts/identity-extraction.js";
 
 function createFlow(
-  options: Parameters<typeof createAuthenticationFlow>[0] & {
+  options: Omit<
+    Parameters<typeof createAuthenticationFlow>[0],
+    "generateResponse"
+  > & {
+    generateResponse?: ResponseGenerator;
     now?: () => number;
   },
 ) {
   return createConversationHandler({
-    authenticate: createAuthenticationFlow(options),
+    authenticate: createAuthenticationFlow({
+      ...options,
+      generateResponse:
+        options.generateResponse ??
+        (async () => {
+          throw new Error("Simulated renderer outage");
+        }),
+    }),
     now: options.now,
   });
 }
 
 const empty: IdentityUpdate = {
   outOfScope: false,
-  topic: "other" as const,
+
   firstName: null,
   lastName: null,
   dob: null,
@@ -45,11 +60,13 @@ const patient: PatientRecord = {
 function fixture(
   updates: Record<string, Partial<IdentityUpdate>>,
   overrides: Partial<EhrClient> = {},
+  generateResponse?: ResponseGenerator,
 ) {
   const matches: unknown[] = [];
   const reads: string[] = [];
   const extractions: ExtractionInput[] = [];
   const flow = createFlow({
+    generateResponse,
     extractIdentity: async (input) => {
       extractions.push(input);
       return { ...empty, ...updates[input.text] };
@@ -106,53 +123,85 @@ test("collects partial details and requests only missing information", async () 
   assert.equal(f.reads.length, 1);
 });
 
-test("acknowledges partial identity and redirects an ignored ZIP request naturally", async () => {
-  const f = fixture({
-    refill: { topic: "refill" },
-    details: {
-      firstName: "Alice",
-      lastName: "Nguyen",
-      dob: identity.dob,
-      topic: "identity",
+test("passes validated decisions and recent dialogue to the generator without prescribing wording", async () => {
+  const inputs: ResponseGenerationInput[] = [];
+  const f = fixture(
+    {
+      details: { firstName: "Alice", lastName: "Nguyen", dob: identity.dob },
+      zip: { zip: "94107" },
     },
-    pharmacy: { topic: "pharmacy" },
-    zip: { zip: "94107", topic: "identity" },
-  });
-  const initial = (await f.flow("one", "refill")).messages[0].text;
-  assert.match(initial, /full name, date of birth, and five-digit ZIP code/);
-  const partial = (await f.flow("one", "details")).messages[0].text;
-  assert.match(partial, /Thanks, I have your name and date of birth/);
-  assert.match(partial, /share your five-digit ZIP code/);
-  assert.doesNotMatch(partial, /Before I look up/);
-
-  const ignored = (await f.flow("one", "pharmacy")).messages[0].text;
-  assert.match(ignored, /confirm your pharmacy after verifying your identity/);
-  assert.match(ignored, /still need your five-digit ZIP code/);
-  assert.notEqual(ignored, partial);
-  assert.equal(f.matches.length, 0);
-  assert.equal(f.reads.length, 0);
-
-  const stalled = (await f.flow("one", "yes")).messages[0].text;
-  assert.notEqual(stalled, ignored);
-  assert.match(stalled, /care team can help/);
-  assert.equal(f.matches.length, 0);
-  assert.match(
-    (await f.flow("one", "zip")).messages[0].text,
-    /identity is verified/,
+    {},
+    async (input) => {
+      inputs.push(input);
+      return {
+        text:
+          input.decision.action === "identity_verified"
+            ? "You're verified. Let's discuss the prescription."
+            : "Thanks for sharing that. Which ZIP is on your record?",
+      };
+    },
   );
-  assert.deepEqual(f.matches, [identity]);
+  const partial = await f.flow("one", "details");
+  assert.equal(
+    partial.messages[0].text,
+    "Thanks for sharing that. Which ZIP is on your record?",
+  );
+  assert.equal(inputs[0].decision.action, "request_identity");
+  assert.deepEqual(inputs[0].decision.newlyReceivedFields, [
+    "firstName",
+    "lastName",
+    "dob",
+  ]);
+  assert.deepEqual(inputs[0].decision.requestedFields, ["zip"]);
+  assert.deepEqual(inputs[0].messages, [{ from: "patient", text: "details" }]);
+  assert.equal(f.matches.length, 0);
+
+  await f.flow("one", "Yes, keep my pharmacy.");
+  assert.equal(inputs[1].decision.unansweredRequests, 1);
+  assert.deepEqual(inputs[1].decision.newlyReceivedFields, []);
+  assert.deepEqual(inputs[1].decision.requestedFields, ["zip"]);
+  assert.deepEqual(inputs[1].messages.slice(-2), [
+    partial.messages[0],
+    { from: "patient", text: "Yes, keep my pharmacy." },
+  ]);
+  assert.equal(f.matches.length, 0);
+  await f.flow("one", "zip");
+  assert.equal(inputs[2].decision.action, "identity_verified");
+  assert.deepEqual(f.reads, ["p-1"]);
+  assert.doesNotMatch(JSON.stringify(inputs), /415-555|p-1/);
 });
 
-test("verification questions explain why details are needed without resetting collected identity", async () => {
-  const f = fixture({
-    details: { firstName: "Alice", lastName: "Nguyen", dob: identity.dob },
-    why: { topic: "verification" },
-  });
-  await f.flow("one", "details");
-  const reply = (await f.flow("one", "why")).messages[0].text;
-  assert.match(reply, /match you to the right patient record/);
-  assert.match(reply, /five-digit ZIP code/);
-  assert.doesNotMatch(reply, /share your full name/);
+test("hard scope redirects skip generation and cannot populate identity", async () => {
+  let generated = false;
+  const f = fixture(
+    { unrelated: { ...identity, outOfScope: true } },
+    {},
+    async () => {
+      generated = true;
+      return { text: "This must not be shown." };
+    },
+  );
+  assert.match(
+    (await f.flow("one", "unrelated")).messages[0].text,
+    /prescription refills/,
+  );
+  assert.equal(generated, false);
+  assert.equal(f.matches.length, 0);
+});
+
+test("invalid generator output cannot change workflow state and falls back safely", async () => {
+  const f = fixture(
+    {},
+    {},
+    async () =>
+      ({ text: "Submitted.", state: "complete" }) as unknown as {
+        text: string;
+      },
+  );
+  const reply = await f.flow("one", "hello");
+  assert.equal(reply.state, "in_progress");
+  assert.match(reply.messages[0].text, /full name/);
+  assert.doesNotMatch(reply.messages[0].text, /Submitted/);
   assert.equal(f.matches.length, 0);
 });
 

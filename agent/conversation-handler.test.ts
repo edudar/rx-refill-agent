@@ -49,6 +49,28 @@ test("routes verified conversations to the next workflow on subsequent turns", a
   assert.equal(session?.lastPrompt, "Please confirm the pharmacy.");
 });
 
+test("keeps a bounded recent dialogue for response generation", async () => {
+  let session: Conversation | undefined;
+  const handleTurn = createConversationHandler({
+    authenticate: async (conversation) => {
+      session = conversation;
+      assert.ok(conversation.history.length <= 12);
+      return {
+        messages: [{ from: "agent", text: "Please share your ZIP." }],
+        state: "in_progress",
+      };
+    },
+  });
+  for (let index = 0; index < 20; index++)
+    await handleTurn("one", `message-${index}`);
+  assert.equal(session?.history.length, 12);
+  assert.deepEqual(session?.history.slice(-2), [
+    { from: "patient", text: "message-19" },
+    { from: "agent", text: "Please share your ZIP." },
+  ]);
+  assert.ok(!session?.history.some((message) => message.text === "message-0"));
+});
+
 test("replays completed or escalated replies without invoking another workflow", async () => {
   for (const state of ["complete", "escalated"] as const) {
     let authCalls = 0;

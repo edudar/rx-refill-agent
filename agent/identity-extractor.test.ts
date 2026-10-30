@@ -5,7 +5,7 @@ import { createIdentityExtractor } from "./identity-extractor.js";
 
 const update = {
   outOfScope: false,
-  topic: "other" as const,
+
   firstName: "Alice",
   lastName: "Nguyen",
   dob: "1988-03-12",

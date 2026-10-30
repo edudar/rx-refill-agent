@@ -10,7 +10,7 @@ export function createConformanceClient(options: {
   const request = (url: string, init?: RequestInit) =>
     (options.fetch ?? globalThis.fetch)(url, {
       ...init,
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(45_000),
     });
   const json = async (url: string, init?: RequestInit): Promise<unknown> => {
     const response = await request(url, init);

@@ -21,6 +21,11 @@ export const agentReplySchema = z.object({
   messages: z.array(agentMessageSchema).min(1),
   state: agentReplyStateSchema,
 });
+export const conversationMessageSchema = z.discriminatedUnion("from", [
+  patientMessageSchema,
+  agentMessageSchema,
+]);
+export type ConversationMessage = z.infer<typeof conversationMessageSchema>;
 
 export type PatientMessage = z.infer<typeof patientMessageSchema>;
 export type AgentMessage = z.infer<typeof agentMessageSchema>;
