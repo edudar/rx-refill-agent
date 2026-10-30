@@ -134,7 +134,7 @@ npm run conformance -- missing-zip      # refusal and unrelated replies without 
 
 `AGENT_BASE` and `MOCK_BASE` optionally override the default agent (`:5050`) and mock
 (`:4010`) URLs. The runner verifies service readiness, runs scenarios sequentially,
-resets the mock request log before each scenario, and assigns a fresh conversation
+restores the mock fixture and clears its request log before each scenario, and assigns a fresh conversation
 ID. It reports each scenario and an aggregate summary, continues after scenario
 failures, and exits nonzero if any scenario fails. Run one suite at a time against
 a mock instance because its request log is shared. Scenarios that send valid
@@ -162,6 +162,34 @@ contain their script and assertions; readiness, transport validation, isolation,
 and reporting stay in the runner and client. Scenario modules never exit the
 process or run on import. These additional clinical/adversarial scenarios are
 planned, not implemented yet.
+
+## Mock state and refill behavior
+
+`npm run mock` starts `mock/app.ts`; `mock/server.ts` exports the HTTP server
+factory for local tests. Dataset selection remains `DATASET_PATH`, then
+`mock/dataset.json`, then the development seed. `SIM_NOW` overrides the fixture's
+clock. Each server owns a deep copy of its startup dataset.
+
+`POST /__reset` restores that startup dataset (including pharmacies and remaining
+refills), resets refill IDs and request sequence numbers, and clears the request
+log. It preserves the configured simulated clock. Scenarios must run sequentially
+against a dedicated mock instance because reset affects the entire server.
+
+The mock now rejects clinically prohibited submissions with HTTP 409 and an
+`error` code: `schedule_ii`, `no_refills`, `prescription_expired`,
+`controlled_refill_too_early`, or `recent_lab_required`. This intentionally changes
+the original permissive mock behavior described in `docs/API.md` §4. Agent code
+still owns clinical decisions: conformance must assert that prohibited refill
+POSTs never occurred, rather than accepting a mock rejection as correct agent
+behavior. Rejected requests remain in `/__calls`.
+
+Date-only rules use UTC calendar dates from the simulated clock. Expiration day,
+the two-day controlled-refill window, and the required-lab age limit are inclusive;
+future labs do not qualify. Successful submission consumes one remaining refill
+and returns a new refill ID. It does not change `lastFilledDate`: submission is not
+confirmation of dispensing. The mock does not deduplicate requests or prove patient
+authentication, pharmacy consent, or correct agent reasoning; those remain agent
+and conformance responsibilities. No new conversation scenarios are registered yet.
 
 ## Module boundaries
 

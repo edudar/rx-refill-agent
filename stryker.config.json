@@ -3,7 +3,7 @@
   "mutate": ["agent/**/*.ts", "!agent/**/*.test.ts", "!agent/app.ts"],
   "testRunner": "command",
   "commandRunner": {
-    "command": "node --import ./scripts/test-environment.mjs --import tsx --test --test-concurrency=2 agent/*.test.ts agent/domain/*.test.ts conformance/*.test.ts scripts/*.test.mjs"
+    "command": "node --import ./scripts/test-environment.mjs --import tsx --test --test-concurrency=2 agent/*.test.ts agent/domain/*.test.ts conformance/*.test.ts mock/*.test.ts scripts/*.test.mjs"
   },
   "checkers": ["typescript"],
   "tsconfigFile": "tsconfig.json",

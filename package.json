@@ -8,11 +8,11 @@
     "node": ">=22"
   },
   "scripts": {
-    "mock": "tsx mock/server.ts",
+    "mock": "tsx mock/app.ts",
     "agent": "tsx agent/app.ts",
     "conformance": "tsx conformance/run.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --import ./scripts/test-environment.mjs --import tsx --test agent/*.test.ts agent/domain/*.test.ts conformance/*.test.ts scripts/*.test.mjs",
+    "test": "node --import ./scripts/test-environment.mjs --import tsx --test agent/*.test.ts agent/domain/*.test.ts conformance/*.test.ts mock/*.test.ts scripts/*.test.mjs",
     "test:mutation": "stryker run",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
