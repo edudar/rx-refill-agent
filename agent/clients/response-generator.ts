@@ -5,7 +5,12 @@ import {
   generatedResponseSchema,
   type ResponseGenerator,
 } from "../contracts/response-generation.js";
-import { createOpenAIClient } from "./openai-client.js";
+import {
+  assertCompleted,
+  createOpenAIClient,
+  outputTokenLimit,
+  type ModelResolutionListener,
+} from "./openai-client.js";
 
 const instructions = `You are the patient-facing voice of a prescription-refill assistant.
 Application code has already evaluated this turn and supplied an authoritative decision.
@@ -37,7 +42,10 @@ Stay focused on the refill task. Do not give medical advice or discuss implement
 Return only the patient-facing text in the specified schema. You have no tools or authority to take actions.`;
 
 export function createResponseGenerator(
-  options: ModelConfig & { fetch?: typeof globalThis.fetch },
+  options: ModelConfig & {
+    fetch?: typeof globalThis.fetch;
+    onModelResolved?: ModelResolutionListener;
+  },
 ): ResponseGenerator {
   const client = createOpenAIClient(options);
   return async ({ decision, messages }) => {
@@ -54,11 +62,11 @@ export function createResponseGenerator(
       text: {
         format: zodTextFormat(generatedResponseSchema, "patient_response"),
       },
-      max_output_tokens: 1_024,
+      max_output_tokens: outputTokenLimit(1_024, options.reasoning),
       store: false,
     });
-    if (response.status !== "completed" || !response.output_parsed)
-      throw new Error("Response generation did not complete");
+    assertCompleted("Response generation", response, response.output_parsed);
+    options.onModelResolved?.(response.model);
     return generatedResponseSchema.parse(response.output_parsed);
   };
 }

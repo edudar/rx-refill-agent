@@ -4,10 +4,31 @@ import { loadConfig } from "./config.js";
 
 const credentials = { OPENAI_API_KEY: "test-key", OPENAI_MODEL: "test-model" };
 
-test("configuration loads explicitly with existing service defaults and no reasoning override", () => {
+test("configuration defaults to the validated model and an explicit reasoning effort", () => {
+  for (const env of [
+    { OPENAI_API_KEY: "test-key" },
+    {
+      OPENAI_API_KEY: "test-key",
+      OPENAI_MODEL: "",
+      OPENAI_REASONING_EFFORT: "",
+    },
+  ]) {
+    assert.deepEqual(loadConfig(env).openai, {
+      apiKey: "test-key",
+      model: "gpt-6-luna",
+      reasoning: { effort: "none" },
+    });
+  }
+});
+
+test("configuration loads explicitly with existing service defaults", () => {
   const config = loadConfig(credentials);
   assert.deepEqual(config, {
-    openai: { apiKey: "test-key", model: "test-model", reasoning: undefined },
+    openai: {
+      apiKey: "test-key",
+      model: "test-model",
+      reasoning: { effort: "none" },
+    },
     ehr: { baseUrl: "http://localhost:4010", apiKey: "dev-ehr-key" },
     port: 5050,
     conversationLogging: true,
@@ -40,7 +61,7 @@ test("configuration fails before startup for missing credentials or invalid sett
   for (const env of [
     {},
     { OPENAI_MODEL: "test-model" },
-    { OPENAI_API_KEY: "test-key" },
+    { OPENAI_API_KEY: "", OPENAI_MODEL: "test-model" },
     { ...credentials, OPENAI_REASONING_EFFORT: "unknown" },
     { ...credentials, AGENT_PORT: "not-a-port" },
     { ...credentials, AGENT_PORT: "0" },

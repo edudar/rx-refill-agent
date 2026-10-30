@@ -125,6 +125,54 @@ const ambiguousDob: ConformanceScenario = {
   },
 };
 
+const cityInsteadOfZip: ConformanceScenario = {
+  name: "city-instead-of-zip",
+  description:
+    "A city is not a ZIP: ask for the ZIP before matching, then finish the refill.",
+  async run(context) {
+    await sendChecked(context, "I'd like to refill my Lisinopril.");
+    const city = await sendChecked(
+      context,
+      `${alice.firstName} ${alice.lastName}, DOB ${alice.dob}. I live in San Francisco, in the Mission.`,
+    );
+    context.check(
+      city.calls.length === 0,
+      "matched identity with a ZIP the patient never supplied",
+    );
+    checkWaiting(context, city.reply, /zip|postal/i);
+    await sendChecked(context, `${alice.zip}.`);
+    await confirmCurrentPharmacy(context, alice);
+  },
+};
+
+const fullPhoneNumber: ConformanceScenario = {
+  name: "full-phone-number",
+  description:
+    "Match on the last four digits of a full phone number, keeping a leading zero.",
+  async run(context) {
+    const priya = patientFixture("pat_007");
+    const last4 = priya.phone.replace(/\D/g, "").slice(-4);
+    await sendChecked(
+      context,
+      `I need to refill ${priya.medications[0].name}.`,
+    );
+    const identity = await sendChecked(
+      context,
+      `${identityMessage(priya)} My phone number is ${priya.phone}.`,
+    );
+    const match = identity.calls.find(
+      (call) => call.path === "/ehr/patients:match",
+    );
+    const factors = (match?.body as { factors?: { phoneLast4?: unknown } })
+      ?.factors;
+    context.check(
+      factors?.phoneLast4 === last4,
+      `phone ending was not matched as ${last4}`,
+    );
+    await confirmCurrentPharmacy(context, priya);
+  },
+};
+
 function checkNoPatientRecords(
   context: ScenarioContext,
   calls: Awaited<ReturnType<ScenarioContext["calls"]>>,
@@ -166,4 +214,6 @@ export const identityScenarios: readonly ConformanceScenario[] = [
     patientFixture("pat_011"),
   ),
   ambiguousDob,
+  cityInsteadOfZip,
+  fullPhoneNumber,
 ];

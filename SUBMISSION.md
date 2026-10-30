@@ -23,13 +23,17 @@ npm run conformance   # all conformance scenarios; run mock + agent first
 
 ## OpenAI configuration
 
-Set `OPENAI_API_KEY` and `OPENAI_MODEL` in the agent process environment. Choose a
-model available to your account that supports Responses API Structured Outputs.
-The agent has no default model and fails at startup if either variable is missing.
-Optionally set `OPENAI_REASONING_EFFORT` to `none`, `minimal`, `low`, `medium`,
-`high`, `xhigh`, or `max`. If unset, the request omits reasoning configuration and
-uses the model's default. Invalid values fail at startup; the selected model must
-support the requested effort. For Luna identity extraction, start with `none`.
+Only `OPENAI_API_KEY` is required. The model and reasoning effort default to the
+configuration used for live conformance runs; both are overridable:
+
+| Variable                  | Default      | Notes                                                          |
+| ------------------------- | ------------ | -------------------------------------------------------------- |
+| `OPENAI_API_KEY`          | _(required)_ | The agent fails at startup without it.                         |
+| `OPENAI_MODEL`            | `gpt-6-luna` | Must support Responses API Structured Outputs.                 |
+| `OPENAI_REASONING_EFFORT` | `none`       | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. |
+
+The effort is always sent explicitly, so a different model's default never applies
+silently; the selected model must support it. Invalid values fail at startup.
 `AGENT_PORT`, `EHR_BASE_URL`, and `EHR_API_KEY` are optional overrides; their defaults
 connect to the local mock.
 
@@ -37,15 +41,20 @@ Alternatively, copy `.env.openai` to `.env`, replace the placeholders, and start
 with `node --env-file=.env --import=tsx agent/app.ts`. `.env` files are ignored by
 Git. `npm run agent` reads exported environment variables and does not load `.env`.
 
-- Model provider + model id + version: OpenAI Responses API; set the desired model
-  ID/version using `OPENAI_MODEL`. No live model run has been validated yet.
-- Settings: Structured Outputs, `store: false`, 512 maximum output tokens for
+- Model provider + model id + version: OpenAI Responses API, `gpt-6-luna`
+  with reasoning effort `none`. The agent logs a `model_resolved` JSON line the
+  first time each snapshot answers (configured alias, resolved snapshot, effort),
+  so any agent or conformance run records the exact version even when conversation
+  logging is off. Resolved snapshot: _[record from the agent log after a live
+  conformance run]_.
+- Settings: Structured Outputs, `store: false`, 512 visible output tokens for
   extraction and 1,024 for response generation; 15-second timeout per model call,
   with no automatic model retries. Both stages use the same configured model and
-  reasoning effort. Conformance allows 45 seconds per HTTP request for both stages
-  and EHR calls.
-  Reasoning effort is selected through `OPENAI_REASONING_EFFORT`; when unset,
-  the model's default applies.
+  reasoning effort. Reasoning tokens count against `max_output_tokens`, so any
+  effort other than `none` adds a 4,096-token reasoning allowance to each cap.
+  Incomplete responses report the API's reason (for example `max_output_tokens`)
+  without model or patient text. Conformance allows 45 seconds per HTTP request
+  for both stages and EHR calls.
 
 ## Authentication implementation
 
@@ -169,8 +178,8 @@ failures, and exits nonzero if any scenario fails. Run one suite at a time again
 a mock instance because its request log is shared. Scenarios that send valid
 patient messages use the configured model and incur API usage.
 
-There are 49 registered scenarios: the starter script, the extended happy path and
-missing-ZIP check, plus 46 new identity, clinical, medication, pharmacy, conversation, and outage
+There are 51 registered scenarios: the starter script, the extended happy path and
+missing-ZIP check, plus 48 new identity, clinical, medication, pharmacy, conversation, and outage
 cases. They are executable TDD targets, not skipped or marked as expected failures.
 The runner still exits nonzero when any selected scenario fails. The agent currently
 implements authentication only, so refill scenarios are expected to fail until the
@@ -252,6 +261,8 @@ conformance failures remain visible TDD work rather than a claimed passing suite
 | `dob-written-month`                 | Accept DOB '12 March 1988', normalize it, and finish Alice's refill.                                     |
 | `dob-unambiguous-numeric`           | Accept DOB '16/05/1964', normalize it, and finish Grace's refill.                                        |
 | `dob-ambiguous-clarified`           | Ask for the written month before using an ambiguous numeric DOB.                                         |
+| `city-instead-of-zip`               | A city is not a ZIP: ask for the ZIP before matching, then finish the refill.                            |
+| `full-phone-number`                 | Match on the last four digits of a full phone number, keeping a leading zero.                            |
 | `schedule-ii`                       | Decline pat_002's refill: schedule-ii; never attempt submission.                                         |
 | `expired-no-refills`                | Decline pat_003's refill: expired-no-refills; never attempt submission.                                  |
 | `controlled-too-early`              | Decline pat_004's refill: controlled-too-early; never attempt submission.                                |

@@ -11,10 +11,14 @@ export const reasoningEffortSchema = z.enum([
 ]);
 export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 
+// The model and effort validated by evals/identity-extraction.ts; both are overridable.
+export const DEFAULT_OPENAI_MODEL = "gpt-6-luna";
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "none";
+
 export const modelConfigSchema = z.object({
   apiKey: z.string().min(1),
   model: z.string().min(1),
-  reasoning: z.object({ effort: reasoningEffortSchema }).optional(),
+  reasoning: z.object({ effort: reasoningEffortSchema }),
 });
 export const ehrConfigSchema = z.object({
   baseUrl: z
@@ -40,12 +44,10 @@ export function loadConfig(
   env: Record<string, string | undefined>,
 ): AgentConfig {
   const effort = reasoningEffortSchema
-    .optional()
-    .parse(env.OPENAI_REASONING_EFFORT);
-  if (!env.OPENAI_API_KEY || !env.OPENAI_MODEL) {
-    throw new Error(
-      "Set OPENAI_API_KEY and OPENAI_MODEL before starting the agent",
-    );
+    .default(DEFAULT_REASONING_EFFORT)
+    .parse(env.OPENAI_REASONING_EFFORT || undefined);
+  if (!env.OPENAI_API_KEY) {
+    throw new Error("Set OPENAI_API_KEY before starting the agent");
   }
   const port = Number(env.AGENT_PORT ?? 5050);
   if (!Number.isInteger(port) || port < 1 || port > 65_535) {
@@ -59,8 +61,8 @@ export function loadConfig(
       .parse(env.CONVERSATION_LOGGING),
     openai: {
       apiKey: env.OPENAI_API_KEY,
-      model: env.OPENAI_MODEL,
-      reasoning: effort ? { effort } : undefined,
+      model: env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL,
+      reasoning: { effort },
     },
     ehr: {
       baseUrl: env.EHR_BASE_URL ?? "http://localhost:4010",

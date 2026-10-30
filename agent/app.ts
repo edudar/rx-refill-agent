@@ -5,16 +5,21 @@ import { createConsoleConversationLogger } from "./conversation/conversation-log
 import { loadConfig } from "./config.js";
 import { createEhrClient } from "./clients/ehr.js";
 import { createIdentityExtractor } from "./clients/identity-extractor.js";
+import { createModelResolutionLogger } from "./clients/openai-client.js";
 import { createResponseGenerator } from "./clients/response-generator.js";
 
 const config = loadConfig(process.env);
+const model = {
+  ...config.openai,
+  onModelResolved: createModelResolutionLogger(config.openai),
+};
 const handleTurn = createConversationHandler({
   logger: config.conversationLogging
     ? createConsoleConversationLogger()
     : undefined,
   authenticate: createAuthenticationFlow({
-    extractIdentity: createIdentityExtractor(config.openai),
-    generateResponse: createResponseGenerator(config.openai),
+    extractIdentity: createIdentityExtractor(model),
+    generateResponse: createResponseGenerator(model),
     ehr: createEhrClient(config.ehr),
   }),
 });

@@ -56,6 +56,7 @@ test("generates wording from the trusted decision and recent dialogue using the 
       assert.equal(body.tools, undefined);
       assert.equal(body.text.format.strict, true);
       assert.equal(body.text.format.name, "patient_response");
+      assert.equal(body.max_output_tokens, 1_024);
       assert.deepEqual(JSON.parse(body.input), {
         decision: input.decision,
         recentMessages: input.messages,
@@ -81,6 +82,7 @@ test("limits supplied dialogue to the most recent messages", async () => {
   const generate = createResponseGenerator({
     apiKey: "test-key",
     model: "test-model",
+    reasoning: { effort: "none" },
     fetch: async (_url, init) => {
       assert.deepEqual(
         JSON.parse(JSON.parse(String(init?.body)).input).recentMessages,
@@ -124,6 +126,7 @@ test("rejects refusal, incomplete output, empty text, and attempts to supply wor
     const generate = createResponseGenerator({
       apiKey: "test-key",
       model: "test-model",
+      reasoning: { effort: "none" },
       fetch: async () => response(),
     });
     await assert.rejects(generate(input));
