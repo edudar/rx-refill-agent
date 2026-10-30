@@ -23,8 +23,15 @@ import {
   conversationBase,
   type AuthenticatingConversation,
 } from "../domain/conversation.js";
-import { normalizeDateOfBirth } from "../utils/date-of-birth.js";
-import { identityEscalation, responseFallback } from "./response-fallback.js";
+import {
+  dateOfBirthReadings,
+  normalizeDateOfBirth,
+} from "../utils/date-of-birth.js";
+import {
+  dateOfBirthChoice,
+  identityEscalation,
+  responseFallback,
+} from "./response-fallback.js";
 
 const required = ["firstName", "lastName", "dob", "zip"] as const;
 const verifiedMessage = "Thanks, your identity is verified.";
@@ -38,6 +45,8 @@ interface AuthenticationTurn {
   received: IdentityField[];
   invalid: IdentityField[];
   question: boolean;
+  // Every date a numeric DOB could mean, when it reads more than one way.
+  dobReadings: string[];
 }
 
 interface AuthenticationOptions {
@@ -55,6 +64,7 @@ export function createAuthenticationFlow(
       received: [],
       invalid: [],
       question: false,
+      dobReadings: [],
     };
     try {
       const result = await authenticate(turn, text, options);
@@ -102,7 +112,12 @@ async function authenticate(
     return identityVerified(conversation, verification.patient);
   return (
     unansweredLimit(turn) ??
-    respondToDecision(turn, verification.decision, options.generateResponse)
+    respondToDecision(
+      turn,
+      verification.decision,
+      options.generateResponse,
+      dateOfBirthQuestion(turn, verification.decision),
+    )
   );
 }
 
@@ -112,10 +127,23 @@ function countUnanswered({ conversation, question }: AuthenticationTurn) {
 }
 
 function unansweredLimit({ conversation }: AuthenticationTurn) {
-  return (conversation.identityPrompt?.unansweredTurns ?? 0) >=
-    MAX_UNANSWERED_REQUESTS
-    ? escalate(conversation, identityEscalation.unanswered)
+  const prompt = conversation.identityPrompt;
+  return prompt && prompt.unansweredTurns >= MAX_UNANSWERED_REQUESTS
+    ? escalate(conversation, identityEscalation.unanswered(prompt.fields))
     : undefined;
+}
+
+// Offers both readings of an ambiguous numeric DOB instead of a generic retry.
+function dateOfBirthQuestion(
+  { dobReadings }: AuthenticationTurn,
+  decision: AuthenticationDecision,
+) {
+  if (decision.action !== "request_correction" || dobReadings.length < 2)
+    return undefined;
+  return dateOfBirthChoice(
+    dobReadings,
+    decision.requestedFields.filter((field) => field !== "dob"),
+  );
 }
 
 function escalate(
@@ -127,6 +155,7 @@ function escalate(
       ...conversationBase(conversation),
       phase: "ended",
       outcome: "escalated",
+      followUp: identityEscalation.afterwards,
     },
     messages: [{ from: "agent", text }],
     next: "reply",
@@ -153,13 +182,15 @@ async function respondToDecision(
   { conversation }: AuthenticationTurn,
   decision: AuthenticationDecision,
   generateResponse: ResponseGenerator,
+  fixedText?: string,
 ): Promise<StepResult> {
   // Handoffs and outages are stated in fixed wording, never generated.
   const text =
-    decision.action === "escalate" ||
+    fixedText ??
+    (decision.action === "escalate" ||
     decision.action === "verification_unavailable"
       ? responseFallback(decision)
-      : await generatedText(conversation, decision, generateResponse);
+      : await generatedText(conversation, decision, generateResponse));
   return {
     conversation:
       decision.action === "escalate"
@@ -167,6 +198,7 @@ async function respondToDecision(
             ...conversationBase(conversation),
             phase: "ended",
             outcome: "escalated",
+            followUp: identityEscalation.afterwards,
           }
         : conversation,
     messages: [{ from: "agent", text }],
@@ -208,10 +240,18 @@ function identityVerified(
 }
 
 function redirectToRefill(turn: AuthenticationTurn): StepResult {
-  const missing = missingIdentityFields(turn.conversation);
-  const followUp = missing.length
-    ? responseFallback(decisionFor(turn, "request_identity", missing))
-    : "Let me know when you'd like to continue verifying your identity.";
+  const { conversation } = turn;
+  const missing = missingIdentityFields(conversation);
+  // Before any refill or identity detail, invite a refill rather than ask for identity.
+  const started =
+    conversation.pendingIntent ||
+    conversation.identityPrompt ||
+    Object.keys(conversation.factors).length;
+  const followUp = !started
+    ? "If you'd like a refill, tell me which medication and I'll get started."
+    : missing.length
+      ? responseFallback(decisionFor(turn, "request_identity", missing))
+      : "Let me know when you'd like to continue verifying your identity.";
   // Hard scope redirects never invoke generation or accept identity updates.
   return {
     conversation: turn.conversation,
@@ -248,6 +288,7 @@ function applyIdentityUpdate(turn: AuthenticationTurn, update: IdentityUpdate) {
     } else {
       delete conversation.factors[field];
       invalid.push(field);
+      if (field === "dob") turn.dobReadings = dateOfBirthReadings(value);
     }
   }
 }

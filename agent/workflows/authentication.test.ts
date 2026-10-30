@@ -179,6 +179,18 @@ test("passes validated decisions and recent dialogue to the generator without pr
   assert.doesNotMatch(JSON.stringify(inputs), /415-555|p-1/);
 });
 
+test("an off-topic opening invites a refill instead of asking for identity", async () => {
+  const f = fixture({ unrelated: { outOfScope: true }, zip: { zip: "94107" } });
+  assert.equal(
+    (await f.flow("one", "unrelated")).messages[0].text,
+    "I can help with prescription refills and pharmacy changes. If you'd like a refill, tell me which medication and I'll get started.",
+  );
+  assert.match(
+    (await f.flow("two", "zip")).messages[0].text,
+    /(?:full|first) name/,
+  );
+});
+
 test("hard scope redirects skip generation and cannot populate identity", async () => {
   let generated = false;
   const f = fixture(
@@ -234,13 +246,16 @@ test("accepts DOB in multiple formats and sends normalized dates to the EHR", as
   }
 });
 
-test("ambiguous DOB requests a written month and waits for clarification before EHR access", async () => {
+test("ambiguous DOB offers both readings and waits for clarification before EHR access", async () => {
   const f = fixture({
     ambiguous: { ...identity, dob: "03/12/1988" },
     clarified: { dob: "March 12, 1988" },
   });
   const reply = await f.flow("one", "ambiguous");
-  assert.match(reply.messages[0].text, /month written out/);
+  assert.equal(
+    reply.messages[0].text,
+    "Just to check your date of birth: did you mean March 12, 1988 or December 3, 1988?",
+  );
   assert.equal(f.matches.length, 0);
   assert.equal(f.reads.length, 0);
   assert.match(
@@ -248,6 +263,21 @@ test("ambiguous DOB requests a written month and waits for clarification before 
     /identity is verified/,
   );
   assert.deepEqual(f.matches, [identity]);
+});
+
+test("an impossible DOB asks for the month written out and names other missing details", async () => {
+  const f = fixture({
+    impossible: { firstName: "Alice", lastName: "Nguyen", dob: "31/02/1988" },
+    ambiguous: { firstName: "Alice", lastName: "Nguyen", dob: "03/12/1988" },
+  });
+  assert.match(
+    (await f.flow("one", "impossible")).messages[0].text,
+    /date of birth with the month written out/,
+  );
+  assert.match(
+    (await f.flow("two", "ambiguous")).messages[0].text,
+    /did you mean March 12, 1988 or December 3, 1988\? I'll also need your five-digit ZIP code\./,
+  );
 });
 
 test("phone digits cannot substitute for a missing ZIP code", async () => {
@@ -532,7 +562,7 @@ test("two consecutive non-answers to a required detail escalate; questions do no
   assert.equal((await f.flow("one", "refuse")).state, "in_progress");
   const ended = await f.flow("one", "offTopic");
   assert.equal(ended.state, "escalated");
-  assert.match(ended.messages[0].text, /without the details I asked for/);
+  assert.match(ended.messages[0].text, /without your five-digit ZIP code/);
   assert.equal((await f.flow("one", "zip")).state, "escalated");
   assert.equal(f.matches.length, 0);
 

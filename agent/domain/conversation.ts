@@ -86,6 +86,9 @@ export interface VerifiedConversation extends ConversationBase {
 export interface EndedConversation extends ConversationBase {
   phase: "ended";
   outcome: Exclude<AgentReplyState, "in_progress">;
+  // The reply to every later message: what happened and what the patient can
+  // do now, so thanks or "did it go through?" never get a repeated transcript.
+  followUp: string;
 }
 
 export type Conversation =

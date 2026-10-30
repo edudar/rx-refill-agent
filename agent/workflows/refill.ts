@@ -99,7 +99,10 @@ async function refillTurn(
     // Only reads can fail here; the gate reports write outcomes without throwing.
     return error instanceof ServiceRequestError
       ? stalled(conversation, say.servicesUnavailable(), "failure")
-      : reply(ended(conversation, "escalated"), say.cannotProcess());
+      : reply(
+          ended(conversation, "escalated", say.after.referred(false)),
+          say.cannotProcess(),
+        );
   }
 }
 
@@ -115,7 +118,10 @@ function applyStallLimits(
   const stalls = { failure: 0, unanswered: 0, ...before.stalls };
   stalls[stall]++;
   if (stalls[stall] >= STALL_LIMITS[stall])
-    return reply(ended(conversation, "escalated"), say.cannotContinue(stall));
+    return reply(
+      ended(conversation, "escalated", say.after.referred(false)),
+      say.cannotContinue(stall),
+    );
   return { ...result, conversation: { ...conversation, stalls } };
 }
 
@@ -132,7 +138,10 @@ function continueRefill(
       "unanswered",
     );
   if (understanding.intent === "cancel")
-    return reply(ended(conversation, "complete"), say.cancelled());
+    return reply(
+      ended(conversation, "complete", say.after.cancelled()),
+      say.cancelled(),
+    );
   const mention = understanding.medicationMention;
   if (
     mention &&
@@ -143,7 +152,10 @@ function continueRefill(
   switch (refill?.step) {
     case undefined:
       return understanding.intent === "decline"
-        ? reply(ended(conversation, "complete"), say.closing())
+        ? reply(
+            ended(conversation, "complete", say.after.closed()),
+            say.closing(),
+          )
         : startRefill(deps, conversation, null);
     case "choosing_medication":
       return pickMedication(deps, conversation, refill, understanding);
@@ -163,7 +175,10 @@ async function startRefill(
   );
   const options = medications.map(medicationChoice);
   if (!options.length)
-    return reply(ended(conversation, "escalated"), say.noMedications());
+    return reply(
+      ended(conversation, "escalated", say.after.referred(false)),
+      say.noMedications(),
+    );
   if (!mention) return askMedication(conversation, options);
   const matches = matchMedications(mention, medications);
   if (matches.length === 1)
@@ -206,8 +221,14 @@ async function pickMedication(
     return startRefill(deps, conversation, medicationMention);
   if (intent === "decline")
     return refill.held
-      ? reply(ended(conversation, "escalated"), say.heldReferred(refill.held))
-      : reply(ended(conversation, "complete"), say.closing());
+      ? reply(
+          ended(conversation, "escalated", say.after.referred(false)),
+          say.heldReferred(refill.held),
+        )
+      : reply(
+          ended(conversation, "complete", say.after.closed()),
+          say.closing(),
+        );
   return stalled(conversation, say.chooseMedication(options), "unanswered");
 }
 
@@ -257,7 +278,11 @@ async function reviewMedication(
             options: alternatives,
             held: choice,
           })
-        : ended(conversation, "escalated"),
+        : ended(
+            conversation,
+            "escalated",
+            say.after.referred(say.needsNewPrescription(eligibility)),
+          ),
       say.ineligible(choice, eligibility, alternatives),
     );
   }
@@ -333,6 +358,24 @@ async function handlePharmacy(
     if (understanding.intent === "decline")
       return stalled(conversation, say.confirmationDeclined(), "unanswered");
   }
+  // "Just pick one": never choose for the patient, but offer the destination
+  // already on file, which a plain "yes" then confirms.
+  if (
+    refill.step === "choosing_pharmacy" &&
+    understanding.intent === "confirm" &&
+    current
+  )
+    return stalled(
+      withRefill(conversation, {
+        step: "confirming",
+        medication,
+        current,
+        pharmacy: current,
+        presented: distinctPharmacies([...presented, current]),
+      }),
+      say.offerCurrentPharmacy(current),
+      "unanswered",
+    );
   return stalled(conversation, reprompt(refill), "unanswered");
 }
 
@@ -351,12 +394,17 @@ async function searchPharmacies(
   deps: RefillDependencies,
   conversation: VerifiedConversation,
   refill: PharmacyStep,
-  { pharmacyName, pharmacyLocation }: RefillUnderstanding,
+  { pharmacyName, pharmacyLocation, intent }: RefillUnderstanding,
 ) {
   const { medication, current, presented } = refill;
+  // An area search for a different pharmacy leaves out the one already on file.
+  const excludeCurrent = intent === "change_pharmacy" && !pharmacyName;
   const options = (
     await findPharmacies(deps.pharmacies, pharmacyName, pharmacyLocation)
   )
+    .filter(
+      ({ pharmacyId }) => !excludeCurrent || pharmacyId !== current?.pharmacyId,
+    )
     .slice(0, MAX_PHARMACY_OPTIONS)
     .map(pharmacyChoice);
   if (options.length === 1)
@@ -434,19 +482,31 @@ function respondToOutcome(
   switch (outcome.status) {
     case "submitted":
       return reply(
-        ended(conversation, "complete"),
+        ended(
+          conversation,
+          "complete",
+          say.after.submitted(medication, pharmacy),
+        ),
         say.submitted(medication, pharmacy, outcome.pharmacyChanged),
       );
     // The record changed after the review; the care team decides from here.
     case "ineligible":
       return reply(
-        ended(conversation, "escalated"),
+        ended(
+          conversation,
+          "escalated",
+          say.after.referred(say.needsNewPrescription(outcome.eligibility)),
+        ),
         say.ineligible(medication, outcome.eligibility),
       );
     case "unavailable":
       return stalled(retry(), say.servicesUnavailable(), "failure");
     case "pharmacy_update_failed":
-      return stalled(retry(), say.pharmacyUpdateFailed(pharmacy), "failure");
+      return stalled(
+        retry(),
+        say.pharmacyUpdateFailed(pharmacy, refill.current),
+        "failure",
+      );
     case "submission_rejected":
       return stalled(
         retry(outcome.pharmacyChanged ? pharmacy : refill.current),
@@ -455,13 +515,16 @@ function respondToOutcome(
       );
     case "submission_unknown":
       return reply(
-        ended(conversation, "escalated"),
-        say.submissionUnknown(outcome.pharmacyChanged),
+        ended(conversation, "escalated", say.after.uncertain(pharmacy)),
+        say.submissionUnknown(pharmacy, outcome.pharmacyChanged),
       );
     case "not_authorized":
     case "medication_not_found":
     case "cannot_evaluate":
-      return reply(ended(conversation, "escalated"), say.cannotProcess());
+      return reply(
+        ended(conversation, "escalated", say.after.referred(false)),
+        say.cannotProcess(),
+      );
   }
 }
 
@@ -546,8 +609,14 @@ function withRefill(
 function ended(
   conversation: Conversation,
   outcome: EndedConversation["outcome"],
+  followUp: string,
 ): EndedConversation {
-  return { ...conversationBase(conversation), phase: "ended", outcome };
+  return {
+    ...conversationBase(conversation),
+    phase: "ended",
+    outcome,
+    followUp,
+  };
 }
 
 function reply(conversation: Conversation, text: string): RefillResult {

@@ -8,8 +8,20 @@ export type IneligibilityReason =
   | { rule: "schedule_ii" }
   | { rule: "no_refills" }
   | { rule: "expired"; expiredOn: string }
-  | { rule: "too_early"; earliestRefillDate: string }
-  | { rule: "lab_required"; labType: string; withinDays: number };
+  | { rule: "too_early"; earliestRefillDate: string; supplyEndsOn: string }
+  | LabRequirementReason;
+
+// missing: no result of that type; too_old: the latest is older than
+// withinDays; future_dated: the latest is dated after today, which suggests a
+// record error rather than a test the patient still needs.
+type LabRequirementReason = {
+  rule: "lab_required";
+  labType: string;
+  withinDays: number;
+} & (
+  | { problem: "missing" }
+  | { problem: "too_old" | "future_dated"; latestTakenOn: string }
+);
 
 // escalate: a prescriber must act (docs/API.md R1, R2).
 // hold: the refill may become possible later (R3, R4).
@@ -77,12 +89,15 @@ function earlyRefillRule(
   today: number,
 ): IneligibilityReason | undefined {
   if (!hasEarlyRefillLimit(medication)) return;
-  const earliest =
-    calendarDay(medication.lastFilledDate) +
-    medication.daysSupply -
-    CONTROLLED_EARLY_REFILL_DAYS;
+  const supplyEnds =
+    calendarDay(medication.lastFilledDate) + medication.daysSupply;
+  const earliest = supplyEnds - CONTROLLED_EARLY_REFILL_DAYS;
   if (today < earliest)
-    return { rule: "too_early", earliestRefillDate: isoDate(earliest) };
+    return {
+      rule: "too_early",
+      earliestRefillDate: isoDate(earliest),
+      supplyEndsOn: isoDate(supplyEnds),
+    };
 }
 
 // A controlled flag without a schedule still gets the stricter rule; Schedule II
@@ -100,20 +115,23 @@ function recentLabRule(
   const required = medication.requiresRecentLab;
   if (!required) return;
   const type = normalizeLabType(required.type);
-  const qualifies = labs.some((lab) => {
-    const taken = calendarDay(lab.takenDate);
-    return (
-      normalizeLabType(lab.type) === type &&
-      taken <= today &&
-      taken >= today - required.withinDays
-    );
-  });
-  if (!qualifies)
-    return {
-      rule: "lab_required",
-      labType: required.type,
-      withinDays: required.withinDays,
-    };
+  const taken = labs
+    .filter((lab) => normalizeLabType(lab.type) === type)
+    .map((lab) => calendarDay(lab.takenDate));
+  if (taken.some((day) => day <= today && day >= today - required.withinDays))
+    return;
+  const reason = {
+    rule: "lab_required" as const,
+    labType: required.type,
+    withinDays: required.withinDays,
+  };
+  if (!taken.length) return { ...reason, problem: "missing" as const };
+  const latest = Math.max(...taken);
+  return {
+    ...reason,
+    problem: latest > today ? "future_dated" : "too_old",
+    latestTakenOn: isoDate(latest),
+  };
 }
 
 function normalizeLabType(type: string) {

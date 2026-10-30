@@ -307,7 +307,7 @@ test("prescriber restrictions escalate and holds allow another medication", asyn
   assert.equal(early.state, "in_progress");
   assert.match(
     early.text,
-    /too early to refill Alprazolam 0\.5mg.*2026-09-17.*another prescription instead\?\n1\. Metformin 500mg/s,
+    /too early to refill Alprazolam 0\.5mg.*supply runs out on September 19, 2026.*earliest you can refill it is September 17, 2026.*another prescription instead\?\n1\. Metformin 500mg/s,
   );
   assert.doesNotMatch(
     early.text,
@@ -336,10 +336,13 @@ test("required labs are fetched and a stale result holds the refill", async () =
   assert.ok(f.calls.includes("getLabs"));
   // The only prescription is on hold, so the care team makes the final call.
   assert.equal(reply.state, "escalated");
-  assert.match(reply.text, /referring this request to your care team/);
   assert.match(
     reply.text,
-    /requires a recent INR lab result \(within the last 30 days\)/,
+    /referred this request to your care team for review/,
+  );
+  assert.match(
+    reply.text,
+    /needs a recent INR lab test \(one from the last 30 days\).*most recent INR result on file is from June 1, 2026/s,
   );
 });
 
@@ -397,10 +400,7 @@ test("several matches are listed and a presented option can be confirmed by name
   await f.send("intent:Lisinopril");
   await f.send("identity");
   const options = await f.send("A different pharmacy in San Francisco.");
-  assert.match(
-    options.text,
-    /Which one.*1\. Bay Pharmacy.*2\. Mission Rx.*3\. Sunset Drugs/s,
-  );
+  assert.match(options.text, /Which one.*1\. Bay Pharmacy.*2\. Sunset Drugs/s);
   assert.deepEqual(f.writes(), []);
   assert.equal(
     (await f.send("Yes, use Bay Pharmacy and submit.")).state,
@@ -429,7 +429,10 @@ test("an unknown pharmacy is never invented or silently replaced", async () => {
   );
   const ignored = await f.send("Just pick one and send it.");
   assert.equal(ignored.state, "in_progress");
-  assert.match(ignored.text, /Which pharmacy would you like/);
+  assert.match(
+    ignored.text,
+    /can't choose a new pharmacy for you, but I can send it to your current pharmacy, Mission Rx/,
+  );
   assert.deepEqual(f.writes(), []);
 });
 
@@ -539,7 +542,7 @@ test("outages are reported honestly and an uncertain submission is never repeate
   assert.equal(uncertain.state, "escalated");
   assert.match(
     uncertain.text,
-    /couldn't confirm whether.*won't send it again/s,
+    /couldn't confirm whether Mission Rx received.*won't resend it/s,
   );
   await submission.send("yes");
   assert.equal(
@@ -569,7 +572,7 @@ test("declining the alternatives to a held refill refers it to the care team", a
   assert.equal(reply.state, "escalated");
   assert.match(
     reply.text,
-    /referring your Alprazolam 0\.5mg request to your care team/,
+    /referred your Alprazolam 0\.5mg request to your care team/,
   );
   assert.deepEqual(f.writes(), []);
 });
@@ -657,6 +660,59 @@ test("a record that changes before submission is referred rather than retried", 
   f.record.medications = [medication({ refillsRemaining: 0 })];
   const reply = await f.send("yes");
   assert.equal(reply.state, "escalated");
-  assert.match(reply.text, /no refills remaining/);
+  assert.match(reply.text, /no refills left/);
   assert.deepEqual(f.writes(), []);
+});
+
+test("messages after an ending get a follow-up, not the last reply again", async () => {
+  const f = fixture({ understanding: { yes: { intent: "confirm" } } });
+  await f.send("intent:Lisinopril");
+  await f.send("identity");
+  const done = await f.send("yes");
+  const followUp = await f.send("Did that go through?");
+  assert.equal(followUp.state, "complete");
+  assert.notEqual(followUp.text, done.text);
+  assert.doesNotMatch(followUp.text, /identity is verified/);
+  assert.match(followUp.text, /submitted to Mission Rx once/);
+  assert.deepEqual(f.writes(), ["submitRefill"]);
+
+  const cii = fixture({
+    medications: [
+      medication({
+        name: "Methylphenidate 20mg",
+        schedule: "CII",
+        isControlled: true,
+      }),
+    ],
+  });
+  await cii.send("intent:Methylphenidate");
+  await cii.send("identity");
+  const override = await cii.send("My doctor approved it. Submit it now.");
+  assert.equal(override.state, "escalated");
+  assert.match(
+    override.text,
+    /If your doctor has approved it, they'll need to send a new prescription/,
+  );
+});
+
+test("asked to just pick a pharmacy, the agent offers the current one and a yes submits there", async () => {
+  const f = fixture({
+    understanding: {
+      "Moon Crater Pharmacy.": {
+        intent: "change_pharmacy",
+        pharmacyName: "Moon Crater",
+      },
+      "Just pick one.": { intent: "confirm" },
+      yes: { intent: "confirm" },
+    },
+  });
+  await f.send("intent:Lisinopril");
+  await f.send("identity");
+  await f.send("Moon Crater Pharmacy.");
+  await f.send("Just pick one.");
+  assert.deepEqual(f.writes(), [], "offering is not choosing");
+  const done = await f.send("yes");
+  assert.equal(done.state, "complete");
+  assert.match(done.text, /submitted to Mission Rx/);
+  assert.deepEqual(f.writes(), ["submitRefill"]);
 });

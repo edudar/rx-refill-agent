@@ -143,8 +143,17 @@ test("declines report every failed rule, and any prescriber rule escalates", () 
     disposition: "escalate",
     reasons: [
       { rule: "no_refills" },
-      { rule: "too_early", earliestRefillDate: "2026-09-27" },
-      { rule: "lab_required", labType: "INR", withinDays: 30 },
+      {
+        rule: "too_early",
+        earliestRefillDate: "2026-09-27",
+        supplyEndsOn: "2026-09-29",
+      },
+      {
+        rule: "lab_required",
+        labType: "INR",
+        withinDays: 30,
+        problem: "missing",
+      },
     ],
   });
 });
@@ -177,4 +186,52 @@ test("invalid clocks or calendar dates fail instead of guessing", () => {
       ),
     /calendar date/,
   );
+});
+
+test("lab declines say whether the result is missing, too old, or dated in the future", () => {
+  const warfarin = { ...medication, requiresRecentLab: inr };
+  const labReason = (labs: LabResult[]) => {
+    const result = evaluateRefillEligibility(warfarin, labs, now);
+    return result.eligible ? undefined : result.reasons[0];
+  };
+  assert.deepEqual(labReason([lab("2026-08-20", "A1C")]), {
+    rule: "lab_required",
+    labType: "INR",
+    withinDays: 30,
+    problem: "missing",
+  });
+  assert.deepEqual(labReason([lab("2026-05-01"), lab("2026-07-01")]), {
+    rule: "lab_required",
+    labType: "INR",
+    withinDays: 30,
+    problem: "too_old",
+    latestTakenOn: "2026-07-01",
+  });
+  assert.deepEqual(labReason([lab("2026-07-01"), lab("2026-09-03")]), {
+    rule: "lab_required",
+    labType: "INR",
+    withinDays: 30,
+    problem: "future_dated",
+    latestTakenOn: "2026-09-03",
+  });
+});
+
+test("too-early declines report both the supply end and the first refill day", () => {
+  const result = evaluateRefillEligibility(
+    {
+      ...medication,
+      schedule: "CIV",
+      isControlled: true,
+      lastFilledDate: "2026-08-05",
+    },
+    [],
+    now,
+  );
+  assert.deepEqual(result.eligible ? undefined : result.reasons, [
+    {
+      rule: "too_early",
+      earliestRefillDate: "2026-09-02",
+      supplyEndsOn: "2026-09-04",
+    },
+  ]);
 });

@@ -185,7 +185,7 @@ test("keeps a bounded recent dialogue for response generation", async () => {
   assert.ok(!session?.history.some((message) => message.text === "message-0"));
 });
 
-test("replays completed or escalated replies without invoking another workflow", async () => {
+test("answers later messages with the stored follow-up, never another workflow", async () => {
   for (const outcome of ["complete", "escalated"] as const) {
     let authCalls = 0;
     let nextCalls = 0;
@@ -209,6 +209,7 @@ test("replays completed or escalated replies without invoking another workflow",
               ...conversationBase(conversation),
               phase: "ended",
               outcome,
+              followUp: `Follow-up after ${outcome}.`,
             },
             messages: terminal,
             next: "reply",
@@ -217,9 +218,16 @@ test("replays completed or escalated replies without invoking another workflow",
       },
     });
     await handleTurn("one", "identity details");
-    const expected = { messages: terminal, state: outcome };
-    assert.deepEqual(await handleTurn("one", "refill request"), expected);
-    assert.deepEqual(await handleTurn("one", "repeat"), expected);
+    assert.deepEqual(await handleTurn("one", "refill request"), {
+      messages: terminal,
+      state: outcome,
+    });
+    const followUp = {
+      messages: [agent(`Follow-up after ${outcome}.`)],
+      state: outcome,
+    };
+    assert.deepEqual(await handleTurn("one", "thanks"), followUp);
+    assert.deepEqual(await handleTurn("one", "repeat"), followUp);
     assert.equal(authCalls, 1);
     assert.equal(nextCalls, 1);
   }

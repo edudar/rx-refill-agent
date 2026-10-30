@@ -16,6 +16,7 @@ import {
   replyState,
   type AuthenticatingConversation,
   type Conversation,
+  type EndedConversation,
   type VerifiedConversation,
 } from "../domain/conversation.js";
 import { createConversationStore } from "./conversation-store.js";
@@ -115,16 +116,11 @@ const refillUnavailable: ConversationStep<VerifiedConversation> = async (
   next: "reply",
 });
 
-function endedConversation(conversation: Conversation): TurnOutcome {
+function endedConversation(conversation: EndedConversation): TurnOutcome {
   return {
     conversation,
-    reply: conversation.lastReply ?? {
-      messages: [
-        {
-          from: "agent",
-          text: "This conversation has ended. Please start a new conversation for further help.",
-        },
-      ],
+    reply: {
+      messages: [{ from: "agent", text: conversation.followUp }],
       state: replyState(conversation),
     },
   };

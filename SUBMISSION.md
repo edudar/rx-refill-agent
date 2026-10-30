@@ -63,8 +63,9 @@ reports the first time it answers. In the 2026-10-30 runs the API reported
   update succeeds. It keeps no state, so conversations never affect each other; a
   submitted or uncertain refill ends its conversation, which prevents repeats.
 - **Fixed wording for anything that matters.** Clinical declines, proposals, submission
-  results, outages, verification, and handoffs are templates that claim only what
-  happened. The model phrases only identity-collection prompts.
+  results, outages, verification, handoffs, and follow-ups after an ending are templates
+  that claim only what happened, in plain language with readable dates and a next step
+  when the agent cannot proceed. The model phrases only identity-collection prompts.
 
 ## Failure and safety
 

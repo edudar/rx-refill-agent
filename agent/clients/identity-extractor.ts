@@ -24,7 +24,8 @@ are in scope. For mixed requests, extract only identity details relevant to the 
 Extract only details explicitly supplied in the current message. Never invent missing values
 or copy known values into the update. Use null for fields not supplied.
 Use knownFactors and lastPrompt only to interpret short answers such as a bare four-digit
-phone ending. If a number could mean either ZIP or phone ending, leave it null.
+phone ending, or a choice between dates offered in lastPrompt (return the chosen date as
+written there). If a number could mean either ZIP or phone ending, leave it null.
 Split a full name into firstName and lastName; preserve compound surnames and spelling.
 Extract birth dates in the format the patient supplied, including month names, abbreviations,
 numeric dates, or ISO dates. Return the original date text, not a reformatted date.

@@ -60,9 +60,12 @@ phase, a turn is capped at four steps, and the receiving step gets `handedOff: t
 so it never treats the identity message as an answer to its own question.
 
 Steps work on a cloned draft that the store commits only when the turn succeeds, so a
-turn that throws leaves no partial updates or dangling history. Ended conversations
-replay their last reply, so thanks, status questions, or repeated confirmations never
-reach a workflow again.
+turn that throws leaves no partial updates or dangling history. Every ending stores a
+follow-up reply (`followUp`) that answers all later messages, so thanks, status
+questions, repeated confirmations, or claimed approvals never reach a workflow again and
+never get the previous reply repeated. After a refill it confirms the submission went
+out once; after an escalation it says the request is with the care team, and when a
+prescriber must act, that an approving doctor needs to send a new prescription.
 
 Turns for one conversation run strictly in order. State is in memory and discarded on
 restart: at most 12 recent messages per conversation, conversations expire 24 hours
@@ -88,9 +91,11 @@ consecutive verification outage escalates instead of asking the patient to retry
 DOBs may use month names or abbreviations (`March 12, 1988`, `12 Mar 1988`), year-first
 dates (`1988/3/12`), or unambiguous numeric dates (`12/31/1988`, `31/12/1988`). The model
 returns the date as written; Day.js parses it strictly against every supported format
-and accepts only a single distinct result. Ambiguous dates such as `03/04/1988`,
-two-digit years, and impossible dates prompt for the month written out. No locale is
-inferred from ZIP or phone.
+and accepts only a single distinct result. An ambiguous numeric date such as
+`03/12/1988` gets a fixed question offering both readings ("did you mean March 12, 1988
+or December 3, 1988?"); two-digit years and impossible dates prompt for the month
+written out. No locale is inferred from ZIP or phone. The model asks for a date format
+only after a date of birth turns out to be invalid or ambiguous.
 
 Each authentication turn uses two model calls: extraction (identity fields, scope, and
 any `medicationMention`) and response generation, which phrases the application's
@@ -161,10 +166,32 @@ both counts.
 ### Fixed wording
 
 Every refill reply comes from `refill-messages.ts`: clinical declines, proposals,
-choices, submission results, outages, and handoffs. Each sentence claims only what the
-application did. Only the success message says a refill was submitted, and failed
-pharmacy updates never say the pharmacy changed; `refill-messages.test.ts` checks both.
-Patient wording echoed back is trimmed to one short line.
+choices, submission results, outages, handoffs, and follow-ups after an ending. Each
+sentence claims only what the application did. Only success messages say a refill was
+submitted, and failed pharmacy updates never say the pharmacy changed;
+`refill-messages.test.ts` checks both. Patient wording echoed back is trimmed to one
+short line.
+
+The wording is written for both regular and occasional patients:
+
+- Dates read as "September 25, 2026", formatted in UTC so the day never shifts.
+- Reasons that all need a new prescription are combined into one sentence that names
+  the prescriber once. Too-early declines give both the day the supply runs out and the
+  first day a refill is allowed. Lab declines say whether no result is on file, the
+  latest is too old (with its date), or the latest is dated in the future, which points
+  to a record error rather than a missing test.
+- Handoffs say the request was referred and give a step the patient can take ("If it's
+  urgent, please contact your prescriber's office directly") without promising a callback.
+  An uncertain submission also says not to request it again and suggests calling the
+  pharmacy.
+- A failed pharmacy update offers keeping the current pharmacy. Asked to "just pick one",
+  the agent never chooses a new pharmacy but offers the one on file. An area search for a
+  different pharmacy leaves out the current one.
+- Success says the pharmacy will prepare the refill and can be contacted about timing,
+  without promising when it will be ready.
+- Identity handoffs name the missing detail. An off-topic opening invites the patient to
+  name a medication rather than asking for identity, and the disambiguation request says
+  it is needed to find the right record without revealing that other records matched.
 
 ## Clinical rules
 
@@ -201,8 +228,8 @@ verified conversation and the exact medication and pharmacy the patient confirme
 4. submits once and reports the outcome; it never throws.
 
 The gate keeps no state. Repeats within a conversation are prevented by its phase: a
-submitted, uncertain, or escalated refill ends the conversation, later messages replay
-its last reply, and turns for one conversation are serialized. Separate conversations
+submitted, uncertain, or escalated refill ends the conversation, later messages get its
+stored follow-up, and turns for one conversation are serialized. Separate conversations
 are independent requests, even for the same patient and medication: the EHR API has no
 refill history, so the agent cannot tell a duplicate from a new request, and memory
 kept across conversations would make one conversation's outcome depend on another's.

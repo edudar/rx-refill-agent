@@ -24,14 +24,20 @@ const formats = [
 ];
 
 export function normalizeDateOfBirth(value: string): string | null {
+  const readings = dateOfBirthReadings(value);
+  return readings.length === 1 ? readings[0] : null;
+}
+
+// Every calendar date the text could mean, as sorted ISO dates. Trying every
+// format avoids choosing an interpretation based on format order.
+export function dateOfBirthReadings(value: string): string[] {
   const text = normalizeDatePresentation(value);
-  // Trying every format avoids choosing an interpretation based on format order.
   const dates = new Set<string>();
   for (const format of formats) {
     const parsed = dayjs(text, format, "en", true);
     if (parsed.isValid()) dates.add(parsed.format("YYYY-MM-DD"));
   }
-  return dates.size === 1 ? [...dates][0] : null;
+  return [...dates].sort();
 }
 
 function normalizeDatePresentation(value: string) {
