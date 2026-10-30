@@ -36,9 +36,9 @@ Invalid values fail at startup. `.env.openai` is a template: copy it to `.env` a
 ## Model
 
 OpenAI Responses API, model `gpt-6-luna`, reasoning effort `none`, Structured Outputs,
-`store: false`, no tools. The agent logs a `model_resolved` line with the exact snapshot
-the first time it answers. Resolved snapshot: _[record from the agent log after a live
-conformance run]_.
+`store: false`, no tools. The agent logs a `model_resolved` line with the model the API
+reports the first time it answers. In the 2026-10-30 runs the API reported
+`gpt-6-luna` itself; it returned no dated snapshot identifier.
 
 ## Key design decisions
 
@@ -76,7 +76,9 @@ conformance run]_.
 
 ## Status
 
-All unit tests, type checking, and formatting pass. The refill workflow has not yet been
-run against a live model, so conformance results and the resolved snapshot above are
-still to be recorded. State is in memory, and escalation does not create an external
-handoff. AI session transcripts go in `docs/ai-log/`.
+On 2026-10-30, `npm run conformance` passed all 53 scenarios against `gpt-6-luna` with
+reasoning effort `none` (53 passed, 0 failed, 0 skipped), and all unit tests, type
+checking, and formatting pass. That is one live run: model output varies between runs,
+and conformance reply checks are lexical, so transcripts still deserve review. State is
+in memory, and escalation does not create an external handoff. AI session transcripts
+go in `docs/ai-log/`.

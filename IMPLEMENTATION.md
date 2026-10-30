@@ -346,8 +346,9 @@ their owning module.
 
 ## Known limitations
 
-- No live model run has validated the refill workflow; unit tests use simulated model
-  output, and the interpreter prompt still needs live conformance and transcript review.
+- Live conformance passed in full once (2026-10-30, `gpt-6-luna`, effort `none`). Model
+  output varies between runs, so one pass does not establish stability, and reply
+  checks are lexical rather than semantic. Unit tests use simulated model output.
 - Conversation state is in memory and lost on restart.
 - Nothing prevents two separate conversations from each submitting the same refill;
   that needs EHR-side deduplication the API does not offer.
