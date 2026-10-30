@@ -117,11 +117,6 @@ test("an eligible refill re-reads the clock and record, then submits once", asyn
     "getPharmacy",
     "submitRefill",
   ]);
-  assert.deepEqual(await gate.submit(verified(), order), {
-    status: "already_submitted",
-    refillId: "rf_1",
-  });
-  assert.equal(writes(f.calls).length, 1);
 });
 
 test("a confirmed new destination is set before the refill is submitted", async () => {
@@ -229,7 +224,7 @@ test("a refused submission is reported and may be retried by the patient", async
   assert.equal(f.calls.filter((call) => call === "submitRefill").length, 2);
 });
 
-test("a submission with an unknown outcome is never sent again", async () => {
+test("a submission with an unknown outcome is attempted once and reported as unknown", async () => {
   for (const failure of [
     "unavailable",
     "no_response",
@@ -238,51 +233,21 @@ test("a submission with an unknown outcome is never sent again", async () => {
   ] as const) {
     const f = fakeEhr({ fail: { submitRefill: failure } });
     const gate = createRefillGate({ ehr: f.ehr });
-    const first = await gate.submit(verified(), order);
-    assert.deepEqual(first, {
+    assert.deepEqual(await gate.submit(verified(), order), {
       status: "submission_unknown",
       pharmacyChanged: false,
     });
-    f.state.fail = {};
-    // A later turn or another conversation for the same patient stays blocked.
-    assert.equal(
-      (await gate.submit(verified(), order)).status,
-      "submission_unknown",
-    );
+    // The gate never retries; the workflow ends the conversation for review.
     assert.equal(f.calls.filter((call) => call === "submitRefill").length, 1);
   }
 });
 
-test("concurrent conversations for one refill submit it only once", async () => {
+// Repeats within a conversation are prevented by its phase; separate
+// conversations are independent requests, so nothing carries over between them.
+test("the gate keeps no state between conversations", async () => {
   const f = fakeEhr();
-  let release: () => void = () => {};
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
-  const getTime = f.ehr.getTime;
-  f.ehr.getTime = async () => {
-    await gate;
-    return getTime();
-  };
-  const refillGate = createRefillGate({ ehr: f.ehr });
-  const first = refillGate.submit(verified(), order);
-  const second = await refillGate.submit(verified(), order);
-  release();
-  assert.deepEqual(second, { status: "submission_in_progress" });
-  assert.equal((await first).status, "submitted");
-  assert.equal(f.calls.filter((call) => call === "submitRefill").length, 1);
-});
-
-test("the submission ledger forgets refills after 24 hours", async () => {
-  let clock = 0;
-  const f = fakeEhr();
-  const gate = createRefillGate({ ehr: f.ehr, now: () => clock });
-  await gate.submit(verified(), order);
-  clock = 24 * 60 * 60 * 1_000 - 1;
-  assert.equal(
-    (await gate.submit(verified(), order)).status,
-    "already_submitted",
-  );
-  clock++;
+  const gate = createRefillGate({ ehr: f.ehr });
   assert.equal((await gate.submit(verified(), order)).status, "submitted");
+  assert.equal((await gate.submit(verified(), order)).status, "submitted");
+  assert.equal(f.calls.filter((call) => call === "submitRefill").length, 2);
 });

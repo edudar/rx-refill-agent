@@ -379,13 +379,6 @@ function respondToOutcome(
         ended(conversation, "complete"),
         say.submitted(medication, pharmacy, outcome.pharmacyChanged),
       );
-    case "already_submitted":
-      return reply(
-        ended(conversation, "complete"),
-        say.alreadySubmitted(medication),
-      );
-    case "submission_in_progress":
-      return reply(conversation, say.submissionInProgress(medication));
     case "ineligible":
       return reply(
         outcome.eligibility.disposition === "escalate"

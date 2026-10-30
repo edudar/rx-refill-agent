@@ -6,8 +6,6 @@ import {
   type Eligibility,
 } from "../domain/refill-eligibility.js";
 
-const LEDGER_RETENTION_MS = 24 * 60 * 60 * 1_000;
-
 // The exact medication and destination the patient explicitly confirmed.
 export interface RefillOrder {
   patientId: string;
@@ -17,9 +15,6 @@ export interface RefillOrder {
 
 export type RefillGateOutcome =
   | { status: "submitted"; refillId: string; pharmacyChanged: boolean }
-  | { status: "already_submitted"; refillId: string }
-  // Another conversation is submitting this refill right now.
-  | { status: "submission_in_progress" }
   | {
       status: "ineligible";
       eligibility: Extract<Eligibility, { eligible: false }>;
@@ -42,41 +37,24 @@ export interface RefillGate {
   ): Promise<RefillGateOutcome>;
 }
 
-type LedgerEntry =
-  | { status: "in_flight"; at: number }
-  | { status: "submitted"; refillId: string; at: number }
-  | { status: "unknown"; at: number };
-
 // Every EHR write goes through here. The gate re-reads the clock, medication,
-// and labs, re-applies the clinical rules, and keeps a submission ledger outside
-// conversation state, so a rolled-back turn, an evicted conversation, or a second
-// conversation for the same patient cannot repeat a non-idempotent refill.
-export function createRefillGate(options: {
-  ehr: EhrClient;
-  now?: () => number;
-}): RefillGate {
+// and labs, re-applies the clinical rules, and submits at most once per call.
+// It keeps no state: repeats within a conversation are prevented by the phase
+// machine (a submitted or uncertain refill ends the conversation), and turns for
+// one conversation are serialized. Nothing carries over between conversations,
+// because the EHR offers no refill history to tell a duplicate from a new request.
+export function createRefillGate(options: { ehr: EhrClient }): RefillGate {
   const { ehr } = options;
-  const now = options.now ?? Date.now;
-  const ledger = new Map<string, LedgerEntry>();
   return {
     async submit(conversation, order) {
       if (order.patientId !== conversation.patient.patientId)
         return { status: "not_authorized" };
-      pruneLedger(ledger, now());
-      const key = `${order.patientId}\u0000${order.medId}`;
-      const previous = ledger.get(key);
-      if (previous) return previousSubmission(previous);
-      // Claimed before any await so concurrent conversations cannot both submit.
-      ledger.set(key, { status: "in_flight", at: now() });
-      let outcome: RefillGateOutcome;
       try {
-        outcome = await submitChecked(ehr, order);
+        return await submitChecked(ehr, order);
       } catch {
         // Unreachable by design; if it happens, assume the refill may have been sent.
-        outcome = { status: "submission_unknown", pharmacyChanged: false };
+        return { status: "submission_unknown", pharmacyChanged: false };
       }
-      recordOutcome(ledger, key, outcome, now());
-      return outcome;
     },
   };
 }
@@ -154,35 +132,4 @@ async function postRefill(
       ? { status: "submission_rejected", pharmacyChanged }
       : { status: "submission_unknown", pharmacyChanged };
   }
-}
-
-function previousSubmission(entry: LedgerEntry): RefillGateOutcome {
-  switch (entry.status) {
-    case "submitted":
-      return { status: "already_submitted", refillId: entry.refillId };
-    case "in_flight":
-      return { status: "submission_in_progress" };
-    case "unknown":
-      return { status: "submission_unknown", pharmacyChanged: false };
-  }
-}
-
-function recordOutcome(
-  ledger: Map<string, LedgerEntry>,
-  key: string,
-  outcome: RefillGateOutcome,
-  at: number,
-) {
-  if (outcome.status === "submitted")
-    ledger.set(key, { status: "submitted", refillId: outcome.refillId, at });
-  else if (outcome.status === "submission_unknown")
-    ledger.set(key, { status: "unknown", at });
-  // Every other outcome wrote no refill, so the patient may try again.
-  else ledger.delete(key);
-}
-
-function pruneLedger(ledger: Map<string, LedgerEntry>, at: number) {
-  for (const [key, entry] of ledger)
-    if (entry.status !== "in_flight" && at - entry.at >= LEDGER_RETENTION_MS)
-      ledger.delete(key);
 }

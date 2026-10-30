@@ -54,8 +54,8 @@ conformance run]_.
   refills and missing labs hold.
 - **One write path.** A gate re-reads the record and re-applies the rules, updates the
   pharmacy only when the confirmed destination differs, and submits only after that
-  update succeeds. A ledger outside conversation state prevents repeated or concurrent
-  submissions.
+  update succeeds. It keeps no state, so conversations never affect each other; a
+  submitted or uncertain refill ends its conversation, which prevents repeats.
 - **Fixed wording for anything that matters.** Clinical declines, proposals, submission
   results, outages, verification, and handoffs are templates that claim only what
   happened. The model phrases only identity-collection prompts.
@@ -71,7 +71,7 @@ conformance run]_.
   response may hide an accepted refill, so it is never resent and the conversation
   escalates. Failed reads or pharmacy updates write no refill.
 - Unit tests (`npm test`) cover rule boundaries, every write outcome, concurrency, and
-  wording guarantees. 51 conformance scenarios cover identity, clinical, medication,
+  wording guarantees. 53 conformance scenarios cover identity, clinical, medication,
   pharmacy, conversation, and outage cases (`IMPLEMENTATION.md`).
 
 ## Status

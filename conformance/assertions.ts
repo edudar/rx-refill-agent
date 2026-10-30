@@ -50,14 +50,18 @@ export function checkText(
   context.check(pattern.test(replyText(reply)), reason);
 }
 
+const submissionClaim =
+  /\b(?:your |the )?(?:refill|prescription|request) (?:has been |was |is |successfully )?(?:submitted|sent|processed|refilled)\b|\b(?:i(?:'ve| have)?|we(?:'ve| have)?) (?:successfully )?(?:submitted|sent|processed) (?:your |the )?(?:refill|prescription|request)\b/i;
+
+export const claimsSubmission = (reply: AgentReply) =>
+  submissionClaim.test(replyText(reply));
+
 export function checkNoSubmissionClaim(
   context: ScenarioContext,
   reply: AgentReply,
 ) {
-  const claim =
-    /\b(?:your |the )?(?:refill|prescription|request) (?:has been |was |is |successfully )?(?:submitted|sent|processed|refilled)\b|\b(?:i(?:'ve| have)?|we(?:'ve| have)?) (?:successfully )?(?:submitted|sent|processed) (?:your |the )?(?:refill|prescription|request)\b/i;
   context.check(
-    !claim.test(replyText(reply)),
+    !claimsSubmission(reply),
     "agent claimed a refill was submitted without a successful submission",
   );
 }

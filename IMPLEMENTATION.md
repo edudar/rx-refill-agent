@@ -180,10 +180,14 @@ verified conversation and the exact medication and pharmacy the patient confirme
    unless that update succeeded;
 4. submits once and reports the outcome; it never throws.
 
-A 24-hour submission ledger outside conversation state, keyed by patient and
-medication and claimed before any request, means a rolled-back turn, an evicted
-conversation, or a second conversation for the same patient cannot repeat a refill,
-and concurrent attempts submit only once.
+The gate keeps no state. Repeats within a conversation are prevented by its phase: a
+submitted, uncertain, or escalated refill ends the conversation, later messages replay
+its last reply, and turns for one conversation are serialized. Separate conversations
+are independent requests, even for the same patient and medication: the EHR API has no
+refill history, so the agent cannot tell a duplicate from a new request, and memory
+kept across conversations would make one conversation's outcome depend on another's.
+Telling duplicates apart belongs to the EHR or pharmacy, for example with an
+idempotency key or recent-refill lookup.
 
 EHR and pharmacy clients (`json-service.ts`) classify failures by whether the service
 could have acted: `rejected` (4xx), `unavailable` (5xx), `no_response`, and
@@ -191,13 +195,12 @@ could have acted: `rejected` (4xx), `unavailable` (5xx), `no_response`, and
 
 | Gate outcome                                                | Meaning                             | Conversation            |
 | ----------------------------------------------------------- | ----------------------------------- | ----------------------- |
-| `submitted`, `already_submitted`                            | refill on file                      | complete                |
+| `submitted`                                                 | refill on file                      | complete                |
 | `unavailable`                                               | a read failed; nothing written      | retry by confirming     |
 | `pharmacy_update_failed`                                    | update failed; no refill sent       | retry by confirming     |
 | `submission_rejected` (4xx)                                 | EHR refused the refill              | retry by confirming     |
 | `submission_unknown`                                        | 5xx, timeout, or unreadable success | escalated, never resent |
 | `ineligible`                                                | the record changed since the review | escalated or held       |
-| `submission_in_progress`                                    | another conversation is submitting  | in progress             |
 | `not_authorized`, `medication_not_found`, `cannot_evaluate` | cannot be evaluated as given        | escalated               |
 
 A 503 is treated as an unknown outcome: a refill cannot be safely repeated, and HTTP
@@ -248,7 +251,7 @@ Unit tests inject simulated model, EHR, and pharmacy responses.
 Coverage includes identity collection and correction, DOB parsing, matching and
 escalation, phase hand-offs and transactional turns, every clinical rule boundary,
 medication and pharmacy resolution, confirmation rules, every gate outcome including
-concurrent and uncertain submissions, and the wording guarantees above.
+uncertain submissions, and the wording guarantees above.
 `refill.test.ts` drives the real handler, refill workflow, and gate together. These
 tests do not measure model quality; live conformance does.
 
@@ -300,7 +303,14 @@ runs every scenario against an idle fake agent, which every workflow case must d
 | Medications       | `medication-clarification`, `switch-blocked-medication`, `medication-not-on-record`, `medication-strength-clarification`                                                                            |
 | Pharmacies        | `change-pharmacy`, `pharmacy-search-ambiguous`, `pharmacy-search-no-match`, `withdraw-pharmacy-change`, `no-current-pharmacy`                                                                       |
 | Conversation      | `cancel-refill`, `unrelated-code-request`, `unrelated-web-requests`, `bypass-authentication`, `bypass-clinical-rule`, `premature-confirmation`, `no-duplicate-submission`, `conversation-isolation` |
+| Repeat requests   | `repeat-request-new-conversation`, `concurrent-same-patient`                                                                                                                                        |
 | Outages           | `ehr-lookup-outage`, `pharmacy-update-failure`, `refill-submission-failure`                                                                                                                         |
+
+Every scenario is independent of the others and of their order: each gets a restored
+mock and fresh conversation IDs, and the agent carries no state between conversations.
+Multiple requests for the same refill are tested only in their own scenarios, which
+accept either a new submission or an honest decline, but require each conversation to
+verify on its own, submit at most once, and claim only submissions that happened.
 
 Schedule II, exhausted-refill, and expiration cases require `escalated`; early
 controlled refills and lab problems require a hold or escalation. Ambiguity stays
@@ -338,7 +348,9 @@ their owning module.
 
 - No live model run has validated the refill workflow; unit tests use simulated model
   output, and the interpreter prompt still needs live conformance and transcript review.
-- State and the submission ledger are in memory and lost on restart.
+- Conversation state is in memory and lost on restart.
+- Nothing prevents two separate conversations from each submitting the same refill;
+  that needs EHR-side deduplication the API does not offer.
 - Escalation sets the `escalated` state with fixed handoff wording; no external
   handoff or ticket is created, and no structured audit record is written.
 - Refill-phase clarifications use fixed wording rather than model phrasing.

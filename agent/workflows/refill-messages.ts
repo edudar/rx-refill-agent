@@ -100,12 +100,6 @@ export function submitted(
   return `Your ${medication.name} refill has been submitted to ${pharmacy.name}.${change} The pharmacy will process it from here.`;
 }
 
-export const alreadySubmitted = (medication: MedicationChoice) =>
-  `Your ${medication.name} refill has already been submitted, so I won't send it again.`;
-
-export const submissionInProgress = (medication: MedicationChoice) =>
-  `A request for ${medication.name} is already being processed, so I won't send another one. Please check back shortly.`;
-
 export const pharmacyUpdateFailed = (pharmacy: PharmacyChoice) =>
   `I couldn't update your pharmacy to ${pharmacy.name}, so I haven't submitted the refill. Reply yes to try again, or tell me a different pharmacy.`;
 

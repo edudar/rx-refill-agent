@@ -25,7 +25,6 @@ test("only the success message claims a refill was submitted", () => {
     say.pharmacyUpdateFailed(pharmacy),
     say.submissionRejected(true),
     say.submissionUnknown(true),
-    say.submissionInProgress(medication),
     say.cannotProcess(),
     say.noMedications(),
     say.servicesUnavailable(),
