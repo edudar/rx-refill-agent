@@ -24,57 +24,112 @@ import {
   type AuthenticatingConversation,
 } from "../domain/conversation.js";
 import { normalizeDateOfBirth } from "../utils/date-of-birth.js";
-import { responseFallback } from "./response-fallback.js";
+import { identityEscalation, responseFallback } from "./response-fallback.js";
 
 const required = ["firstName", "lastName", "dob", "zip"] as const;
 const verifiedMessage = "Thanks, your identity is verified.";
+// After a required detail is requested and its need explained once, a second
+// consecutive non-answer ends the conversation; questions do not count.
+const MAX_UNANSWERED_REQUESTS = 2;
+const MAX_CONSECUTIVE_OUTAGES = 2;
 
 interface AuthenticationTurn {
   conversation: AuthenticatingConversation;
   received: IdentityField[];
   invalid: IdentityField[];
+  question: boolean;
 }
 
-export function createAuthenticationFlow(options: {
+interface AuthenticationOptions {
   extractIdentity: IdentityExtractor;
   generateResponse: ResponseGenerator;
   ehr: PatientIdentityLookup;
-}): ConversationStep<AuthenticatingConversation> {
+}
+
+export function createAuthenticationFlow(
+  options: AuthenticationOptions,
+): ConversationStep<AuthenticatingConversation> {
   return async (conversation, { text }) => {
     const turn: AuthenticationTurn = {
       conversation,
       received: [],
       invalid: [],
+      question: false,
     };
     try {
-      const update = identityUpdateSchema.parse(
-        await options.extractIdentity({
-          text,
-          factors: { ...conversation.factors },
-          lastPrompt: conversation.lastPrompt,
-        }),
-      );
-      if (update.outOfScope) return redirectToRefill(turn);
-      recordRefillIntent(conversation, update);
-      applyIdentityUpdate(turn, update);
-      const needed = neededIdentityFields(turn);
-      const verification = needed.length
-        ? { decision: requestIdentityFields(turn, needed) }
-        : await verifyIdentity(turn, options.ehr);
-      return "patient" in verification
-        ? identityVerified(conversation, verification.patient)
-        : respondToDecision(
-            turn,
-            verification.decision,
-            options.generateResponse,
-          );
+      const result = await authenticate(turn, text, options);
+      delete conversation.unavailableTurns;
+      return result;
     } catch {
+      const outages = (conversation.unavailableTurns ?? 0) + 1;
+      conversation.unavailableTurns = outages;
+      if (outages >= MAX_CONSECUTIVE_OUTAGES)
+        return escalate(conversation, identityEscalation.unavailable);
       return respondToDecision(
         turn,
         decisionFor(turn, "verification_unavailable"),
         options.generateResponse,
       );
     }
+  };
+}
+
+async function authenticate(
+  turn: AuthenticationTurn,
+  text: string,
+  options: AuthenticationOptions,
+): Promise<StepResult> {
+  const { conversation } = turn;
+  const update = identityUpdateSchema.parse(
+    await options.extractIdentity({
+      text,
+      factors: { ...conversation.factors },
+      lastPrompt: conversation.lastPrompt,
+    }),
+  );
+  turn.question = update.isQuestion;
+  if (update.outOfScope) {
+    countUnanswered(turn);
+    return unansweredLimit(turn) ?? redirectToRefill(turn);
+  }
+  recordRefillIntent(conversation, update);
+  applyIdentityUpdate(turn, update);
+  const needed = neededIdentityFields(turn);
+  const verification = needed.length
+    ? { decision: requestIdentityFields(turn, needed) }
+    : await verifyIdentity(turn, options.ehr);
+  if ("patient" in verification)
+    return identityVerified(conversation, verification.patient);
+  return (
+    unansweredLimit(turn) ??
+    respondToDecision(turn, verification.decision, options.generateResponse)
+  );
+}
+
+function countUnanswered({ conversation, question }: AuthenticationTurn) {
+  if (conversation.identityPrompt && !question)
+    conversation.identityPrompt.unansweredTurns++;
+}
+
+function unansweredLimit({ conversation }: AuthenticationTurn) {
+  return (conversation.identityPrompt?.unansweredTurns ?? 0) >=
+    MAX_UNANSWERED_REQUESTS
+    ? escalate(conversation, identityEscalation.unanswered)
+    : undefined;
+}
+
+function escalate(
+  conversation: AuthenticatingConversation,
+  text: string,
+): StepResult {
+  return {
+    conversation: {
+      ...conversationBase(conversation),
+      phase: "ended",
+      outcome: "escalated",
+    },
+    messages: [{ from: "agent", text }],
+    next: "reply",
   };
 }
 
@@ -99,9 +154,10 @@ async function respondToDecision(
   decision: AuthenticationDecision,
   generateResponse: ResponseGenerator,
 ): Promise<StepResult> {
-  // A handoff is stated in fixed wording, never generated.
+  // Handoffs and outages are stated in fixed wording, never generated.
   const text =
-    decision.action === "escalate"
+    decision.action === "escalate" ||
+    decision.action === "verification_unavailable"
       ? responseFallback(decision)
       : await generatedText(conversation, decision, generateResponse);
   return {
@@ -212,7 +268,7 @@ function requestIdentityFields(
   turn: AuthenticationTurn,
   needed: IdentityField[],
 ) {
-  const { conversation, received, invalid } = turn;
+  const { conversation, received, invalid, question } = turn;
   const previous = conversation.identityPrompt;
   const sameRequest =
     previous?.fields.length === needed.length &&
@@ -220,7 +276,7 @@ function requestIdentityFields(
   conversation.identityPrompt = {
     fields: needed,
     unansweredTurns:
-      sameRequest && !received.length && !invalid.length
+      sameRequest && !received.length && !invalid.length && !question
         ? previous.unansweredTurns + 1
         : 0,
   };
@@ -248,7 +304,7 @@ function repeatFailedVerification(
     !factors.phoneLast4 &&
     conversation.identityPrompt?.fields.includes("phoneLast4")
   ) {
-    conversation.identityPrompt.unansweredTurns++;
+    countUnanswered(turn);
     return decisionFor(turn, "request_disambiguation", ["phoneLast4"]);
   }
   return decisionFor(turn, "verification_failed", [...required]);

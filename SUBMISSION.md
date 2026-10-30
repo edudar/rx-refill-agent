@@ -50,8 +50,14 @@ reports the first time it answers. In the 2026-10-30 runs the API reported
   `ended`. The verifying turn hands off to the refill in the same turn, and turns commit
   only when they succeed.
 - **Pure clinical rules.** One function evaluates docs/API.md §4 against the EHR clock
-  in UTC calendar days, with inclusive boundaries. Prescriber issues escalate; early
-  refills and missing labs hold.
+  in UTC calendar days, with inclusive boundaries. Prescriber issues escalate. Early
+  controlled refills and missing labs are held: the patient may refill another
+  prescription, and otherwise the request escalates so the care team makes the final
+  judgment rather than the agent rejecting it outright.
+- **Conversations always reach an ending.** `in_progress` means the agent is waiting on
+  a question it can act on. Two consecutive non-answers to a required identity detail,
+  two consecutive service failures, or three refill turns without progress escalate
+  instead of asking again.
 - **One write path.** A gate re-reads the record and re-applies the rules, updates the
   pharmacy only when the confirmed destination differs, and submits only after that
   update succeeds. It keeps no state, so conversations never affect each other; a

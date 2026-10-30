@@ -1,5 +1,14 @@
 import type { AuthenticationDecision } from "../contracts/response-generation.js";
 
+// Fixed handoffs when verification cannot continue for reasons other than
+// three failed matches.
+export const identityEscalation = {
+  unanswered:
+    "I can't verify your identity without the details I asked for, so I'm unable to continue with this request here. Please contact your care team for help.",
+  unavailable:
+    "I still can't verify your identity because our systems are unavailable, so I'm unable to continue with this request here. Please contact your care team for help.",
+};
+
 // Used when response generation fails, and always for escalation, whose
 // wording is fixed; other normal phrasing belongs to the model.
 export function responseFallback(decision: AuthenticationDecision): string {

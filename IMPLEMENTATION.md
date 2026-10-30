@@ -79,6 +79,12 @@ and its demographics must agree with the supplied identity. An ambiguous match a
 phone digits. Three distinct failed attempts escalate. This is demographic matching
 only, with no OTP or proof of possession.
 
+Verification also ends instead of looping. Once a required detail has been requested,
+the first non-answer gets an explanation of why it is needed, and a second consecutive
+non-answer (a refusal, an off-topic message, or a reply without the detail) escalates
+with fixed wording. Questions, such as why a detail is needed, do not count. A second
+consecutive verification outage escalates instead of asking the patient to retry again.
+
 DOBs may use month names or abbreviations (`March 12, 1988`, `12 Mar 1988`), year-first
 dates (`1988/3/12`), or unambiguous numeric dates (`12/31/1988`, `31/12/1988`). The model
 returns the date as written; Day.js parses it strictly against every supported format
@@ -88,9 +94,9 @@ inferred from ZIP or phone.
 
 Each authentication turn uses two model calls: extraction (identity fields, scope, and
 any `medicationMention`) and response generation, which phrases the application's
-decision using field names and the last 12 messages, never retrieved records. Two
-messages are fixed text instead: the verification confirmation ("Thanks, your identity
-is verified.") and the escalation handoff. Out-of-scope messages get a fixed redirect
+decision using field names and the last 12 messages, never retrieved records. The
+verification confirmation ("Thanks, your identity is verified."), outage replies, and
+every escalation handoff are fixed text instead. Out-of-scope messages get a fixed redirect
 and cannot change identity or intent. Malformed, refused, or failed generation falls
 back to short fixed text for the same decision.
 
@@ -119,9 +125,13 @@ on your record" plus the actual list. Nothing is ever substituted. Naming a diff
 medication at any point restarts selection, and never confirms in that same turn.
 
 **Review.** The chosen medication is checked against the EHR clock and required labs.
-`escalate` dispositions end the conversation as `escalated`; `hold` dispositions explain
-the reason and let the patient choose another medication. An eligible refill reads the
-current pharmacy and proposes it; with none on file, the patient is asked for one.
+`escalate` dispositions end the conversation as `escalated`. A `hold` is never a flat
+rejection, because the patient may have a genuine need the agent cannot judge: the reply
+explains the reason and lists the patient's other prescriptions to refill instead, and
+if there are none, or the patient declines them, the request escalates so the care team
+makes the final judgment. A record that changes between review and submission also
+escalates. An eligible refill reads the current pharmacy and proposes it; with none on
+file, the patient is asked for one.
 
 **Pharmacy.** A named pharmacy is first matched against destinations already presented
 in this refill (`findNamedPharmacy`, which requires a unique match). Otherwise the
@@ -139,6 +149,14 @@ conversation without writes.
 Unrelated requests get a fixed redirect followed by the current question. If the
 interpreter fails, nothing changes and the patient is asked to try again. Read
 outages report that nothing was submitted.
+
+**Endings.** A conversation stays `in_progress` only while the agent waits on a question
+it can act on. Turns that leave the refill where it was are counted by kind: failures
+(service outages, failed pharmacy updates, refused submissions, interpreter errors) and
+non-answers (redirects, re-asked questions, unknown medications or pharmacies, a "no"
+without an alternative). Two consecutive failures or three consecutive non-answers
+escalate with fixed wording stating that nothing was submitted; any progress resets
+both counts.
 
 ### Fixed wording
 
@@ -161,6 +179,8 @@ disposition:
 | prescription expired                        | escalate    |
 | controlled (CIII–CV) more than 2 days early | hold        |
 | required lab missing, stale, or future      | hold        |
+
+A hold offers the patient's other prescriptions; with none to offer, it escalates.
 
 Rules use the UTC calendar day of `GET /ehr/time`, never the host clock. The expiration
 day, the day exactly two days before a controlled supply runs out, and a lab exactly

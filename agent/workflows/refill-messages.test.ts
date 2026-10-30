@@ -66,12 +66,21 @@ test("declines explain every failed rule and say who must act", () => {
   assert.match(text, /expired on 2026-08-31/);
   assert.match(text, /recent INR lab result/);
   assert.match(text, /referring this request to your care team/);
-  assert.doesNotMatch(
-    say.ineligible(medication, {
-      eligible: false,
-      disposition: "hold",
-      reasons: [{ rule: "lab_required", labType: "INR", withinDays: 30 }],
-    }),
-    /referring/,
+  const hold = {
+    eligible: false as const,
+    disposition: "hold" as const,
+    reasons: [
+      { rule: "lab_required" as const, labType: "INR", withinDays: 30 },
+    ],
+  };
+  const offered = say.ineligible(medication, hold, [
+    { medId: "m-2", name: "Metformin 500mg" },
+  ]);
+  assert.match(offered, /another prescription instead\?\n1\. Metformin 500mg/);
+  assert.doesNotMatch(offered, /referring/);
+  assert.match(
+    say.ineligible(medication, hold),
+    /haven't submitted it\. I'm referring this request to your care team/,
+    "a hold with nothing else to offer is referred, never simply rejected",
   );
 });

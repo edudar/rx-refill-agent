@@ -11,7 +11,7 @@ import type {
 // handoff. Each sentence claims only what the application actually did.
 
 const careTeamHandoff =
-  "I'm referring this request to your care team, and I'll stop here so they can follow up.";
+  "I'm referring this request to your care team so they can review it, and I'll stop here.";
 
 function numbered(options: readonly string[]) {
   return options.map((option, index) => `${index + 1}. ${option}`).join("\n");
@@ -78,15 +78,27 @@ function describeReason(
 export function ineligible(
   medication: MedicationChoice,
   eligibility: Extract<Eligibility, { eligible: false }>,
+  alternatives: readonly MedicationChoice[] = [],
 ) {
   const reasons = eligibility.reasons.map((reason) =>
     describeReason(medication, reason),
   );
   const next =
-    eligibility.disposition === "escalate"
-      ? careTeamHandoff
-      : "I haven't submitted anything. Is there another prescription I can help you with?";
+    eligibility.disposition === "hold" && alternatives.length
+      ? `I haven't submitted it. Would you like to refill another prescription instead?\n${numbered(alternatives.map(({ name }) => name))}`
+      : `I haven't submitted it. ${careTeamHandoff}`;
   return [...reasons, next].join(" ");
+}
+
+export const heldReferred = (medication: MedicationChoice) =>
+  `Okay. I haven't submitted anything. I'm referring your ${medication.name} request to your care team so they can review it, and I'll stop here.`;
+
+export function cannotContinue(kind: "failure" | "unanswered") {
+  const blocker =
+    kind === "failure"
+      ? "I still can't complete this because of a problem with our systems"
+      : "I haven't been able to complete this refill here";
+  return `${blocker}, and nothing has been submitted. ${careTeamHandoff}`;
 }
 
 export function submitted(

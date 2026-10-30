@@ -4,6 +4,8 @@ import type { IdentityFactors } from "../domain/identity.js";
 // Raw proposals may be incomplete or invalid; domain validators decide what to keep.
 export const identityUpdateSchema = z.object({
   outOfScope: z.boolean(),
+  // A question (such as why a detail is needed) is not a non-answer.
+  isQuestion: z.boolean(),
   firstName: z.string().nullable(),
   lastName: z.string().nullable(),
   dob: z.string().nullable(),

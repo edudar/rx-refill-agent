@@ -307,7 +307,12 @@ test("prescriber restrictions escalate and holds allow another medication", asyn
   assert.equal(early.state, "in_progress");
   assert.match(
     early.text,
-    /too early to refill Alprazolam 0\.5mg.*2026-09-17/s,
+    /too early to refill Alprazolam 0\.5mg.*2026-09-17.*another prescription instead\?\n1\. Metformin 500mg/s,
+  );
+  assert.doesNotMatch(
+    early.text,
+    /Alprazolam 0\.5mg\n/,
+    "the held one is not re-offered",
   );
   assert.match(
     (await hold.send("Instead, please refill my Metformin 500mg.")).text,
@@ -329,7 +334,9 @@ test("required labs are fetched and a stale result holds the refill", async () =
   await f.send("intent:Warfarin");
   const reply = await f.send("identity");
   assert.ok(f.calls.includes("getLabs"));
-  assert.equal(reply.state, "in_progress");
+  // The only prescription is on hold, so the care team makes the final call.
+  assert.equal(reply.state, "escalated");
+  assert.match(reply.text, /referring this request to your care team/);
   assert.match(
     reply.text,
     /requires a recent INR lab result \(within the last 30 days\)/,
@@ -549,4 +556,107 @@ test("an interpretation failure changes nothing and asks the patient to try agai
   assert.equal(reply.state, "in_progress");
   assert.match(reply.text, /trouble understanding/);
   assert.equal((await f.send("yes")).state, "complete");
+});
+
+test("declining the alternatives to a held refill refers it to the care team", async () => {
+  const f = fixture({
+    medications: [alprazolam, metformin],
+    understanding: { "No, just that one.": { intent: "decline" } },
+  });
+  await f.send("intent:Alprazolam");
+  await f.send("identity");
+  const reply = await f.send("No, just that one.");
+  assert.equal(reply.state, "escalated");
+  assert.match(
+    reply.text,
+    /referring your Alprazolam 0\.5mg request to your care team/,
+  );
+  assert.deepEqual(f.writes(), []);
+});
+
+test("three turns without progress hand off instead of asking again", async () => {
+  const f = fixture({
+    understanding: {
+      "Moon Crater Pharmacy.": {
+        intent: "change_pharmacy",
+        pharmacyName: "Moon Crater",
+      },
+      "Just pick one.": { intent: "confirm" },
+      "Whatever.": { intent: "other" },
+    },
+  });
+  await f.send("intent:Lisinopril");
+  await f.send("identity");
+  assert.equal((await f.send("Moon Crater Pharmacy.")).state, "in_progress");
+  assert.equal((await f.send("Just pick one.")).state, "in_progress");
+  const ended = await f.send("Whatever.");
+  assert.equal(ended.state, "escalated");
+  assert.match(
+    ended.text,
+    /haven't been able to complete this refill.*nothing has been submitted.*care team/s,
+  );
+  assert.deepEqual(f.writes(), []);
+});
+
+test("progress resets the count of turns without progress", async () => {
+  const f = fixture({
+    understanding: {
+      "Moon Crater Pharmacy.": {
+        intent: "change_pharmacy",
+        pharmacyName: "Moon Crater",
+      },
+      "Just pick one.": { intent: "confirm" },
+      "Bay Pharmacy.": {
+        intent: "change_pharmacy",
+        pharmacyName: "Bay Pharmacy",
+      },
+      "No.": { intent: "decline" },
+      yes: { intent: "confirm" },
+    },
+  });
+  await f.send("intent:Lisinopril");
+  await f.send("identity");
+  await f.send("Moon Crater Pharmacy.");
+  await f.send("Just pick one.");
+  assert.match((await f.send("Bay Pharmacy.")).text, /I found Bay Pharmacy/);
+  assert.equal((await f.send("No.")).state, "in_progress");
+  assert.equal((await f.send("yes")).state, "complete");
+});
+
+test("a second consecutive failure hands off rather than offering another retry", async () => {
+  const f = fixture({
+    understanding: {
+      "Switch to Bay Pharmacy.": {
+        intent: "change_pharmacy",
+        pharmacyName: "Bay Pharmacy",
+      },
+      yes: { intent: "confirm" },
+    },
+  });
+  f.fail.setPharmacy = new ServiceRequestError("unavailable", 503);
+  await f.send("intent:Lisinopril");
+  await f.send("identity");
+  await f.send("Switch to Bay Pharmacy.");
+  const first = await f.send("yes");
+  assert.equal(first.state, "in_progress");
+  assert.match(first.text, /Reply yes to try again/);
+  const second = await f.send("yes");
+  assert.equal(second.state, "escalated");
+  assert.match(
+    second.text,
+    /problem with our systems.*nothing has been submitted/s,
+  );
+  assert.equal(f.calls.filter((name) => name === "setPharmacy").length, 2);
+  assert.ok(!f.calls.includes("submitRefill"));
+});
+
+test("a record that changes before submission is referred rather than retried", async () => {
+  const f = fixture({ understanding: { yes: { intent: "confirm" } } });
+  await f.send("intent:Lisinopril");
+  await f.send("identity");
+  f.record.medications = [medication({ refillsRemaining: 0 })];
+  const reply = await f.send("yes");
+  assert.equal(reply.state, "escalated");
+  assert.match(reply.text, /no refills remaining/);
+  assert.deepEqual(f.writes(), []);
 });

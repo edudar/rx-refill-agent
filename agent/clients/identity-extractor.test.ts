@@ -6,6 +6,7 @@ import { createModelResolutionLogger } from "./openai-client.js";
 
 const update = {
   outOfScope: false,
+  isQuestion: false,
 
   firstName: "Alice",
   lastName: "Nguyen",

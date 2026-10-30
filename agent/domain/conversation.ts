@@ -25,6 +25,8 @@ export interface AuthenticationSession {
   factors: IdentityFactors;
   failedMatches: number;
   lastFailedFactors?: string;
+  // Consecutive turns in which verification services were unavailable.
+  unavailableTurns?: number;
   identityPrompt?: {
     fields: (keyof IdentityFactors)[];
     unansweredTurns: number;
@@ -50,7 +52,12 @@ export interface PharmacyChoice {
 // presented lists every destination shown to the patient for this refill; only
 // those can be confirmed without first being proposed.
 export type RefillState =
-  | { step: "choosing_medication"; options: MedicationChoice[] }
+  | {
+      step: "choosing_medication";
+      options: MedicationChoice[];
+      // A medication on hold while the patient considers another prescription.
+      held?: MedicationChoice;
+    }
   | {
       step: "choosing_pharmacy";
       medication: MedicationChoice;
@@ -72,6 +79,8 @@ export interface VerifiedConversation extends ConversationBase {
   phase: "verified";
   patient: PatientRecord;
   refill?: RefillState;
+  // Consecutive refill turns that made no progress, by kind.
+  stalls?: { failure: number; unanswered: number };
 }
 
 export interface EndedConversation extends ConversationBase {

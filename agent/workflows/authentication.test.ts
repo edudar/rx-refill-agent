@@ -44,6 +44,7 @@ function createFlow(
 
 const empty: IdentityUpdate = {
   outOfScope: false,
+  isQuestion: false,
 
   firstName: null,
   lastName: null,
@@ -299,10 +300,8 @@ test("record verification checks ZIP and optional phone digits when supplied", a
       (await f.flow("one", "all")).messages[0].text,
       /trouble verifying/,
     );
-    assert.match(
-      (await f.flow("one", "retry")).messages[0].text,
-      /trouble verifying/,
-    );
+    const repeated = await f.flow("one", "retry");
+    assert.equal(repeated.state, "escalated");
     assert.equal(
       f.reads.length,
       2,
@@ -474,11 +473,92 @@ test("record demographics must agree with supplied identity", async () => {
     (await f.flow("one", "all")).messages[0].text,
     /trouble verifying/,
   );
-  assert.match(
-    (await f.flow("one", "retry")).messages[0].text,
-    /trouble verifying/,
-  );
+  const repeated = await f.flow("one", "retry");
+  assert.equal(repeated.state, "escalated");
+  assert.match(repeated.messages[0].text, /contact your care team/);
   assert.equal(f.reads.length, 2);
+});
+
+test("a second consecutive outage escalates instead of asking for another retry", async () => {
+  let available = false;
+  const generated: string[] = [];
+  const f = fixture(
+    { all: identity, retry: {} },
+    {
+      getPatient: async () => {
+        if (!available) throw new Error("outage");
+        return patient;
+      },
+    },
+    async ({ decision }) => {
+      generated.push(decision.action);
+      return { text: "Generated wording." };
+    },
+  );
+  const first = await f.flow("one", "all");
+  assert.equal(first.state, "in_progress");
+  assert.match(first.messages[0].text, /trouble verifying/);
+  assert.deepEqual(generated, [], "outage wording is fixed");
+  const second = await f.flow("one", "retry");
+  assert.equal(second.state, "escalated");
+  assert.match(second.messages[0].text, /systems are unavailable.*care team/);
+
+  // A single outage still allows a successful retry.
+  available = false;
+  const g = fixture(
+    { all: identity, partial: { firstName: "Alice" } },
+    {
+      getPatient: async () => {
+        if (!available) throw new Error("outage");
+        return patient;
+      },
+    },
+  );
+  await g.flow("two", "all");
+  available = true;
+  assert.match((await g.flow("two", "all")).messages[0].text, /verified/);
+});
+
+test("two consecutive non-answers to a required detail escalate; questions do not count", async () => {
+  const f = fixture({
+    partial: { firstName: "Alice", lastName: "Nguyen", dob: identity.dob },
+    refuse: {},
+    why: { isQuestion: true },
+    offTopic: { outOfScope: true },
+    zip: { zip: "94107" },
+  });
+  await f.flow("one", "partial");
+  assert.equal((await f.flow("one", "why")).state, "in_progress");
+  assert.equal((await f.flow("one", "refuse")).state, "in_progress");
+  const ended = await f.flow("one", "offTopic");
+  assert.equal(ended.state, "escalated");
+  assert.match(ended.messages[0].text, /without the details I asked for/);
+  assert.equal((await f.flow("one", "zip")).state, "escalated");
+  assert.equal(f.matches.length, 0);
+
+  const g = fixture({
+    partial: { firstName: "Alice", lastName: "Nguyen", dob: identity.dob },
+    refuse: {},
+    zip: { zip: "94107" },
+  });
+  await g.flow("two", "partial");
+  await g.flow("two", "refuse");
+  assert.match(
+    (await g.flow("two", "zip")).messages[0].text,
+    /identity is verified/,
+    "one non-answer still allows the patient to continue",
+  );
+});
+
+test("refusing disambiguating phone digits twice escalates without revealing a record", async () => {
+  const f = fixture(
+    { all: identity, refuse: {}, offTopic: { outOfScope: true } },
+    { match: async () => ({ count: 2, patientId: null }) },
+  );
+  assert.match((await f.flow("one", "all")).messages[0].text, /last four/);
+  assert.equal((await f.flow("one", "refuse")).state, "in_progress");
+  assert.equal((await f.flow("one", "offTopic")).state, "escalated");
+  assert.equal(f.reads.length, 0);
 });
 
 test("same-conversation concurrent messages are processed in order", async () => {
