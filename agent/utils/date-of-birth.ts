@@ -24,8 +24,19 @@ const formats = [
 ];
 
 export function normalizeDateOfBirth(value: string): string | null {
+  const text = normalizeDatePresentation(value);
+  // Trying every format avoids choosing an interpretation based on format order.
+  const dates = new Set<string>();
+  for (const format of formats) {
+    const parsed = dayjs(text, format, "en", true);
+    if (parsed.isValid()) dates.add(parsed.format("YYYY-MM-DD"));
+  }
+  return dates.size === 1 ? [...dates][0] : null;
+}
+
+function normalizeDatePresentation(value: string) {
   // Normalize presentation only; Day.js handles parsing and calendar validity.
-  const text = value
+  return value
     .trim()
     .toLowerCase()
     .replace(/(\d)(st|nd|rd|th)\b/g, "$1")
@@ -36,12 +47,4 @@ export function normalizeDateOfBirth(value: string): string | null {
     .replace(/\b[a-z]+\b/g, (word) => word[0].toUpperCase() + word.slice(1))
     .replace(/\s+/g, " ")
     .trim();
-
-  // Trying every format avoids choosing an interpretation based on format order.
-  const dates = new Set<string>();
-  for (const format of formats) {
-    const parsed = dayjs(text, format, "en", true);
-    if (parsed.isValid()) dates.add(parsed.format("YYYY-MM-DD"));
-  }
-  return dates.size === 1 ? [...dates][0] : null;
 }

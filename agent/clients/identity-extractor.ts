@@ -1,9 +1,9 @@
 import { zodTextFormat } from "openai/helpers/zod";
-import type { ModelConfig } from "./config.js";
+import type { ModelConfig } from "../config.js";
 import {
   identityUpdateSchema,
   type IdentityExtractor,
-} from "./contracts/identity-extraction.js";
+} from "../contracts/identity-extraction.js";
 import { createOpenAIClient } from "./openai-client.js";
 
 const instructions = `You extract identity details for a prescription-refill assistant.

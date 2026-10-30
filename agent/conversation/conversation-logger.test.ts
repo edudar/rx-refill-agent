@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createConversationHandler } from "./conversation-handler.js";
 import { createConsoleConversationLogger } from "./conversation-logger.js";
-import type { AgentReply } from "./contracts/conversation.js";
-import type { ConversationLogEvent } from "./contracts/logging.js";
+import type { AgentReply } from "../contracts/conversation.js";
+import type { ConversationLogEvent } from "../contracts/logging.js";
 
 const reply: AgentReply = {
   messages: [

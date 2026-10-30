@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { createConformanceClient } from "./client.js";
 import type { ConformanceScenario, ScenarioResult } from "./contracts.js";
 
+type ConformanceClient = ReturnType<typeof createConformanceClient>;
+
 export async function runConformanceSuite(options: {
   scenarios: readonly ConformanceScenario[];
   agentBase: string;
@@ -12,28 +14,35 @@ export async function runConformanceSuite(options: {
   const client = createConformanceClient(options);
   await client.health();
   const results: ScenarioResult[] = [];
-
-  // The mock request log is global, so scenarios must run sequentially.
+  // The mock state is global, so scenarios must run sequentially.
   for (const scenario of options.scenarios) {
-    const result: ScenarioResult = {
-      name: scenario.name,
-      conversationId: `${scenario.name}-${randomUUID()}`,
-      failures: [],
-    };
-    try {
-      await client.reset();
-      await scenario.run(
-        client.context(result.conversationId, (condition, message) => {
-          if (!condition) result.failures.push(message);
-        }),
-      );
-    } catch (error) {
-      result.failures.push(
-        error instanceof Error ? error.message : "Unknown scenario failure",
-      );
-    }
+    const result = await runScenario(client, scenario);
     results.push(result);
     options.onResult?.(result);
   }
   return results;
+}
+
+async function runScenario(
+  client: ConformanceClient,
+  scenario: ConformanceScenario,
+): Promise<ScenarioResult> {
+  const result: ScenarioResult = {
+    name: scenario.name,
+    conversationId: `${scenario.name}-${randomUUID()}`,
+    failures: [],
+  };
+  try {
+    await client.reset();
+    await scenario.run(
+      client.context(result.conversationId, (condition, message) => {
+        if (!condition) result.failures.push(message);
+      }),
+    );
+  } catch (error) {
+    result.failures.push(
+      error instanceof Error ? error.message : "Unknown scenario failure",
+    );
+  }
+  return result;
 }

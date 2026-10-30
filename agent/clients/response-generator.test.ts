@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createResponseGenerator } from "./response-generator.js";
-import type { ResponseGenerationInput } from "./contracts/response-generation.js";
+import type { ResponseGenerationInput } from "../contracts/response-generation.js";
 
 const input: ResponseGenerationInput = {
   decision: {

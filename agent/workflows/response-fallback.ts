@@ -1,4 +1,4 @@
-import type { AuthenticationDecision } from "./contracts/response-generation.js";
+import type { AuthenticationDecision } from "../contracts/response-generation.js";
 
 // Used only when response generation fails; normal phrasing belongs to the model.
 export function responseFallback(decision: AuthenticationDecision): string {

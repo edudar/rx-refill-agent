@@ -193,26 +193,51 @@ and conformance responsibilities. No new conversation scenarios are registered y
 
 ## Module boundaries
 
-- `agent/contracts/` owns HTTP conversation, identity-extraction, and EHR contracts.
-  Zod schemas and their inferred TypeScript types live together.
-- `agent/domain/` owns validated identity structures and internal conversation state.
-  Raw extraction proposals remain separate from validated identity fields.
-- `agent/config.ts` owns model and service configuration. `loadConfig(env)` reads
-  the supplied environment only when called; importing the module has no startup effects.
-- `agent/identity-extractor.ts` implements OpenAI extraction; `agent/ehr.ts`
-  implements the EHR client; `agent/authentication.ts` enforces the identity workflow.
-- `agent/contracts/response-generation.ts` owns application-decision and generated-text
-  contracts. `agent/response-generator.ts` phrases those decisions using recent dialogue;
-  `agent/response-fallback.ts` supplies short replies only when generation fails.
-- `agent/openai-client.ts` centralizes SDK transport settings for extraction and generation.
-- `agent/conversation-handler.ts` owns conversation storage, expiration, turn
-  serialization, terminal states, and routing. Authentication is one workflow step;
-  a separate handler can continue the conversation after authentication.
-- `agent/contracts/logging.ts` defines conversation log events, and
-  `agent/conversation-logger.ts` writes them to the console.
-- `agent/server.ts` defines the HTTP server. `agent/app.ts` is the startup entry point
-  that loads configuration, wires the conversation handler and its dependencies,
-  and starts listening. Contracts and domain modules do not import implementations.
+- `agent/clients/` contains external-service adapters: `ehr.ts` for EHR requests,
+  `openai-client.ts` for SDK setup, and `identity-extractor.ts` and
+  `response-generator.ts` for the two model interactions.
+- `agent/workflows/` contains authentication decisions and their response fallback.
+  Workflow policy stays here rather than in generic utilities or external clients.
+- `agent/conversation/` contains turn routing, serialization, conversation storage,
+  expiration/eviction, and console logging.
+- `agent/utils/` contains reusable parsing helpers, currently DOB normalization.
+  `normalizeDateOfBirth` still uses strict Day.js parsing and rejects ambiguity.
+- `agent/contracts/` owns shared HTTP, EHR, extraction, response-generation, and
+  logging contracts. Zod schemas and their inferred TypeScript types stay together.
+- `agent/domain/` owns validated identity structures and conversation state types.
+- `agent/config.ts` owns configuration. `loadConfig(env)` reads only its supplied
+  environment; importing the module has no startup effects.
+- `agent/server.ts` owns HTTP transport; `agent/app.ts` loads configuration and
+  composes clients, workflows, and conversation handling before starting the server.
+- Tests remain beside their corresponding production modules. Both unit and mutation
+  test commands discover tests in the agent root and its package directories.
+- These packages are source folders within the existing application; they do not
+  introduce separate npm packages, build steps, barrel exports, or dependencies.
+- `mock/server.ts` composes request parsing, local introspection, authorization,
+  recording, and route dispatch. `mock/http.ts` owns transport parsing/serialization;
+  `mock/ehr.ts` handles patient matching and patient-resource routes;
+  `mock/refill-rules.ts` evaluates the mock's clinical backstop;
+  `mock/state.ts` owns fixture snapshots, resets, request records, and submissions.
+- `conformance/client.ts` separates service readiness, JSON transport, and patient
+  messages. `conformance/suite.ts` separates suite orchestration from isolated
+  scenario execution; `conformance/run.ts` separates selection from reporting.
+  Scenario scripts and their named assertion helpers stay in their scenario files.
+
+## Function composition
+
+Keep functions concise and focused on one responsibility. Give extracted steps
+names that describe their intent, so orchestration reads as a sequence of domain
+operations. Keep related private helpers in their owning module; create a separate
+module when it owns a distinct responsibility, such as conversation storage or
+mock refill eligibility. Avoid generic utility layers and arbitrary line limits.
+
+Authentication now composes identity updates, missing-field requests, verification,
+and response generation. DOB presentation cleanup is separate from strict date
+parsing. The agent server separates bounded body reading from message validation
+and turn dispatch. Refactoring preserves API behavior, clinical decisions, request
+ordering, identity safeguards, conversation limits, and failure fallbacks. Unit
+regression tests cover the extracted mock matching, authorization, directory,
+and lab routes; live conformance scenario registration is unchanged.
 
 ## Conversation logging
 
@@ -292,10 +317,17 @@ surname/DOB comparisons and disambiguation follow-ups. The server has 17 survivo
 including request-boundary and error-response mutations. Inspect the HTML report
 to distinguish real assertion gaps from equivalent behavior before changing tests.
 
+After the function-composition refactor, all 61 unit tests passed. A fresh full
+mutation run produced 687 mutants: 324 killed, 14 timed out, 105 survived, and 244
+type-invalid, for a 76.30% score above the unchanged 75% gate. The mutation set
+changed with the refactor, so this is a gate check rather than a direct measure of
+test-quality improvement. Type checking, formatting, and conformance CLI listing
+also passed; live model conversations were not run for this refactor.
+
 For faster investigation, narrow a report run to one source file:
 
 ```sh
-npm run test:mutation -- --mutate "agent/authentication.ts"
+npm run test:mutation -- --mutate "agent/workflows/authentication.ts"
 ```
 
 A targeted run applies the same threshold only to its selected files. Run the full

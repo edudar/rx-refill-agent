@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createConversationHandler } from "./conversation-handler.js";
-import type { AgentReply } from "./contracts/conversation.js";
-import type { PatientRecord } from "./contracts/ehr.js";
-import type { Conversation } from "./domain/conversation.js";
+import type { AgentReply } from "../contracts/conversation.js";
+import type { PatientRecord } from "../contracts/ehr.js";
+import type { Conversation } from "../domain/conversation.js";
 
 const patient: PatientRecord = {
   patientId: "p-1",

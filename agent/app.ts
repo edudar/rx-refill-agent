@@ -1,11 +1,11 @@
 import { createAgentServer } from "./server.js";
-import { createAuthenticationFlow } from "./authentication.js";
-import { createConversationHandler } from "./conversation-handler.js";
-import { createConsoleConversationLogger } from "./conversation-logger.js";
+import { createAuthenticationFlow } from "./workflows/authentication.js";
+import { createConversationHandler } from "./conversation/conversation-handler.js";
+import { createConsoleConversationLogger } from "./conversation/conversation-logger.js";
 import { loadConfig } from "./config.js";
-import { createEhrClient } from "./ehr.js";
-import { createIdentityExtractor } from "./identity-extractor.js";
-import { createResponseGenerator } from "./response-generator.js";
+import { createEhrClient } from "./clients/ehr.js";
+import { createIdentityExtractor } from "./clients/identity-extractor.js";
+import { createResponseGenerator } from "./clients/response-generator.js";
 
 const config = loadConfig(process.env);
 const handleTurn = createConversationHandler({

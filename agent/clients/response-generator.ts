@@ -1,10 +1,10 @@
 import { zodTextFormat } from "openai/helpers/zod";
-import type { ModelConfig } from "./config.js";
+import type { ModelConfig } from "../config.js";
 import {
   authenticationDecisionSchema,
   generatedResponseSchema,
   type ResponseGenerator,
-} from "./contracts/response-generation.js";
+} from "../contracts/response-generation.js";
 import { createOpenAIClient } from "./openai-client.js";
 
 const instructions = `You are the patient-facing voice of a prescription-refill assistant.

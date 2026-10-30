@@ -1,17 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createAuthenticationFlow } from "./authentication.js";
-import { createConversationHandler } from "./conversation-handler.js";
+import { createConversationHandler } from "../conversation/conversation-handler.js";
 
 import type {
   ResponseGenerator,
   ResponseGenerationInput,
-} from "./contracts/response-generation.js";
-import type { EhrClient, PatientRecord } from "./contracts/ehr.js";
+} from "../contracts/response-generation.js";
+import type { EhrClient, PatientRecord } from "../contracts/ehr.js";
 import type {
   ExtractionInput,
   IdentityUpdate,
-} from "./contracts/identity-extraction.js";
+} from "../contracts/identity-extraction.js";
 
 function createFlow(
   options: Omit<
