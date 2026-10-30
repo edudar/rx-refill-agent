@@ -27,7 +27,8 @@
     "docs",
     "reports",
     "README.md",
-    "SUBMISSION.md"
+    "SUBMISSION.md",
+    "IMPLEMENTATION.md"
   ],
   "cleanTempDir": "always",
   "thresholds": {

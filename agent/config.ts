@@ -11,7 +11,7 @@ export const reasoningEffortSchema = z.enum([
 ]);
 export type ReasoningEffort = z.infer<typeof reasoningEffortSchema>;
 
-// The model and effort validated by evals/identity-extraction.ts; both are overridable.
+// Default model and reasoning effort; both are overridable from the environment.
 export const DEFAULT_OPENAI_MODEL = "gpt-6-luna";
 export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "none";
 
@@ -20,23 +20,27 @@ export const modelConfigSchema = z.object({
   model: z.string().min(1),
   reasoning: z.object({ effort: reasoningEffortSchema }),
 });
-export const ehrConfigSchema = z.object({
+const serviceConfigSchema = z.object({
   baseUrl: z
     .url()
     .refine((url) => ["http:", "https:"].includes(new URL(url).protocol), {
-      message: "EHR_BASE_URL must be an HTTP(S) URL",
+      message: "Service base URLs must be HTTP(S)",
     }),
   apiKey: z.string(),
 });
+export const ehrConfigSchema = serviceConfigSchema;
+export const pharmacyConfigSchema = serviceConfigSchema;
 export const agentConfigSchema = z.object({
   openai: modelConfigSchema,
   ehr: ehrConfigSchema,
+  pharmacy: pharmacyConfigSchema,
   port: z.number().int().min(1).max(65_535),
   conversationLogging: z.boolean(),
 });
 
 export type ModelConfig = z.infer<typeof modelConfigSchema>;
 export type EhrConfig = z.infer<typeof ehrConfigSchema>;
+export type PharmacyConfig = z.infer<typeof pharmacyConfigSchema>;
 export type AgentConfig = z.infer<typeof agentConfigSchema>;
 
 // Importing configuration does not read the environment or validate credentials.
@@ -67,6 +71,10 @@ export function loadConfig(
     ehr: {
       baseUrl: env.EHR_BASE_URL ?? "http://localhost:4010",
       apiKey: env.EHR_API_KEY ?? "dev-ehr-key",
+    },
+    pharmacy: {
+      baseUrl: env.PHARMACY_BASE_URL ?? "http://localhost:4010",
+      apiKey: env.PHARMACY_API_KEY ?? "dev-pharmacy-key",
     },
     port,
   });

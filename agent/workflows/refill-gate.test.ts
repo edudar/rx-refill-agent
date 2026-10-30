@@ -1,13 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  EhrRequestError,
-  type CurrentPharmacy,
-  type EhrClient,
-  type EhrFailureKind,
-  type LabResult,
-  type Medication,
+import type {
+  CurrentPharmacy,
+  EhrClient,
+  LabResult,
+  Medication,
 } from "../contracts/ehr.js";
+import {
+  ServiceRequestError,
+  type ServiceFailureKind,
+} from "../contracts/service-errors.js";
 import type { VerifiedConversation } from "../domain/conversation.js";
 import { createRefillGate, type RefillOrder } from "./refill-gate.js";
 
@@ -53,7 +55,7 @@ function fakeEhr(
     medications?: Medication[];
     labs?: LabResult[];
     pharmacy?: CurrentPharmacy;
-    fail?: Partial<Record<keyof EhrClient, EhrFailureKind | Error>>;
+    fail?: Partial<Record<keyof EhrClient, ServiceFailureKind | Error>>;
   } = {},
 ) {
   const calls: string[] = [];
@@ -69,7 +71,7 @@ function fakeEhr(
       calls.push(name);
       const failure = state.fail[name];
       if (failure instanceof Error) throw failure;
-      if (failure) throw new EhrRequestError(failure);
+      if (failure) throw new ServiceRequestError(failure);
       return run(...args);
     };
   const ehr: EhrClient = {

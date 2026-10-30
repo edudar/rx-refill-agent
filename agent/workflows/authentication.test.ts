@@ -395,6 +395,28 @@ test("three distinct failed attempts escalate and stop further work", async () =
   assert.equal(f.reads.length, 0);
 });
 
+test("escalation uses fixed wording rather than generated text", async () => {
+  const actions: string[] = [];
+  const f = fixture(
+    {
+      first: { ...identity, phoneLast4: "1111" },
+      second: { phoneLast4: "2222" },
+      third: { phoneLast4: "3333" },
+    },
+    { match: async () => ({ count: 0, patientId: null }) },
+    async ({ decision }) => {
+      actions.push(decision.action);
+      return { text: "Generated wording." };
+    },
+  );
+  await f.flow("one", "first");
+  await f.flow("one", "second");
+  const escalated = await f.flow("one", "third");
+  assert.equal(escalated.state, "escalated");
+  assert.match(escalated.messages[0].text, /contact your care team/);
+  assert.deepEqual(actions, ["verification_failed", "verification_failed"]);
+});
+
 test("out-of-scope extraction cannot populate identity or cause EHR requests", async () => {
   const f = fixture({
     unrelated: { ...identity, outOfScope: true },

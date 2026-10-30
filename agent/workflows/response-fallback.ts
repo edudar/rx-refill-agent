@@ -1,6 +1,7 @@
 import type { AuthenticationDecision } from "../contracts/response-generation.js";
 
-// Used only when response generation fails; normal phrasing belongs to the model.
+// Used when response generation fails, and always for escalation, whose
+// wording is fixed; other normal phrasing belongs to the model.
 export function responseFallback(decision: AuthenticationDecision): string {
   switch (decision.action) {
     case "escalate":

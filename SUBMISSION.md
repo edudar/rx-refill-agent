@@ -1,560 +1,82 @@
 # Submission
 
-## Documentation policy
+A prescription-refill agent that authenticates the patient, resolves the medication
+against their record, enforces the clinical rules, confirms or changes the pharmacy,
+and submits the refill. Design details, behavior, and testing are in
+[`IMPLEMENTATION.md`](IMPLEMENTATION.md); `README.md` is the original brief, unedited.
 
-`README.md` preserves the original assessment instructions from the starter commit
-(`80f19f7`). Do not edit or reformat it. Record project changes, setup instructions,
-commands, architecture, implementation guidance, and limitations in `SUBMISSION.md`.
-The original README is excluded from Prettier to preserve it exactly.
+## Run
 
-## How to run
+Requires Node.js 22+ (`.nvmrc`). With the mock running (`npm run mock`):
 
-Requires Node.js 22 or newer. If you use nvm, run `nvm install` and `nvm use`
-to select the Node.js 22 baseline from `.nvmrc`.
-
-```
+```sh
 npm install
-npm run typecheck     # check agent, mock, and conformance TypeScript without emitting files
-npm test              # automated tests; no API credentials required
-npm run mock          # EHR + pharmacy on :4010
-npm run agent         # agent on :5050; export OpenAI configuration first (see below)
-npm run conformance   # all conformance scenarios; run mock + agent first
+OPENAI_API_KEY=... npm run agent    # agent on :5050
 ```
 
-## OpenAI configuration
-
-Only `OPENAI_API_KEY` is required. The model and reasoning effort default to the
-configuration used for live conformance runs; both are overridable:
-
-| Variable                  | Default      | Notes                                                          |
-| ------------------------- | ------------ | -------------------------------------------------------------- |
-| `OPENAI_API_KEY`          | _(required)_ | The agent fails at startup without it.                         |
-| `OPENAI_MODEL`            | `gpt-6-luna` | Must support Responses API Structured Outputs.                 |
-| `OPENAI_REASONING_EFFORT` | `none`       | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, or `max`. |
-
-The effort is always sent explicitly, so a different model's default never applies
-silently; the selected model must support it. Invalid values fail at startup.
-`AGENT_PORT`, `EHR_BASE_URL`, and `EHR_API_KEY` are optional overrides; their defaults
-connect to the local mock.
-
-Alternatively, copy `.env.openai` to `.env`, replace the placeholders, and start
-with `node --env-file=.env --import=tsx agent/app.ts`. `.env` files are ignored by
-Git. `npm run agent` reads exported environment variables and does not load `.env`.
-
-- Model provider + model id + version: OpenAI Responses API, `gpt-6-luna`
-  with reasoning effort `none`. The agent logs a `model_resolved` JSON line the
-  first time each snapshot answers (configured alias, resolved snapshot, effort),
-  so any agent or conformance run records the exact version even when conversation
-  logging is off. Resolved snapshot: _[record from the agent log after a live
-  conformance run]_.
-- Settings: Structured Outputs, `store: false`, 512 visible output tokens for
-  extraction and 1,024 for response generation; 15-second timeout per model call,
-  with no automatic model retries. Both stages use the same configured model and
-  reasoning effort. Reasoning tokens count against `max_output_tokens`, so any
-  effort other than `none` adds a 4,096-token reasoning allowance to each cap.
-  Incomplete responses report the API's reason (for example `max_output_tokens`)
-  without model or patient text. Conformance allows 45 seconds per HTTP request
-  for both stages and EHR calls.
-
-## Authentication implementation
-
-The current agent requires full name, date of birth, and five-digit ZIP code,
-collected across messages. Phone last four digits are optional; if supplied, they
-are validated and included in matching and record verification. Missing or invalid
-required fields prevent EHR matching; invalid supplied phone digits prompt a correction.
-
-Patients can provide DOB using month names or abbreviations (`March 12, 1988`,
-`12 Mar 1988`), year-first dates (`1988-03-12`, `1988/3/12`), or unambiguous
-month/day or day/month numeric dates (`12/31/1988`, `31/12/1988`). Dates are normalized
-to ISO internally for EHR matching. The extraction model preserves the patient's
-date format; Day.js with `CustomParseFormat` performs strict parsing and calendar
-validation against explicit formats. The DOB wrapper tries every supported format
-and accepts only one distinct result, rather than choosing the first matching
-format. Ambiguous numeric dates
-such as `03/04/1988`, two-digit years, or impossible dates trigger a request to spell
-out the month. No locale is inferred from ZIP code or phone number. Initial prompts
-ask for DOB without requiring a particular format.
-
-Authentication uses two calls to the same configured model: extract identity
-fields and scope, then phrase the application's decision. Application code decides
-which fields are accepted, missing, or invalid; whether a unique match succeeded;
-and whether to request corrections, retry, or escalate. The response-generation
-brief contains field names and these decisions, not retrieved patient data. The
-model receives the last 12 conversation messages to acknowledge context, handle
-reluctance or questions, and avoid repeating itself. It can acknowledge an already
-named prescription rather than asking for it again. The model never states that
-identity was verified; on a unique match the application sends a fixed
-confirmation, which saves one model call on the verifying turn.
-
-`response-generator.ts` returns only text. Workflow state and tool access remain
-under application control. Malformed, refused, incomplete, or failed generation
-uses short fallbacks appropriate to the existing decision. A response-generation
-failure after successful matching does not undo verification or repeat EHR calls.
-Hard out-of-scope requests receive a short application-generated redirect without
-invoking the response generator or accepting identity updates from that message.
-The former topic enum and manually composed normal conversation prompts are removed.
-
-Structured output validates shape, not the truth of every generated sentence.
-The response instructions constrain claims to the application's decision, while
-conformance checks such as `missing-zip` detect unsupported verification/submission
-claims and unauthorized service calls. Prompt and conversation evaluations remain
-necessary; textual compliance is not guaranteed by JSON-schema validation.
-
-It fetches a patient record only after a unique match, requesting phone last four
-digits if needed to disambiguate. Three failed match attempts stop the conversation with a
-care-team handoff message; no external handoff integration is implemented yet.
-
-OpenAI extracts identity fields using
-[Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs).
-The application validates those fields and controls EHR access. The model has no
-tools, receives no retrieved patient record, and cannot set verification state.
-Both model requests use `store: false`. Identity details supplied in chat are
-sent to OpenAI for extraction and may appear in the recent dialogue supplied to
-response generation. Retrieved EHR records and service configuration are not passed
-as response-generation input. Unrelated requests receive a fixed redirect.
-
-Conversation state includes at most 12 recent messages, is held in memory, and is
-discarded on restart. Cleanup runs
-before each turn: conversations expire 24 hours after creation, even if recently
-active. The store retains at most 100 conversations, evicting the least recently
-used idle conversation when a new ID would exceed that limit. In-flight turns
-are protected; if all 100 conversations are busy, new conversations are temporarily
-rejected. Returning to an evicted or expired ID starts fresh and requires identity
-verification again. Each conformance scenario uses a fresh UUID per run.
-This is the assessment's demographic matching flow;
-it does not implement OTP or proof of possession. Conversation IDs are assumed
-to be supplied by a trusted chat front end.
-
-## Conversation phases
-
-Conversation state is a discriminated union by `phase` (`agent/domain/conversation.ts`):
-`authenticating` holds identity factors and match attempts; `verified` holds only
-the matched patient record; `ended` records `complete` or `escalated`. Illegal
-combinations, such as a patient record alongside unverified factors, cannot be
-represented, and identity factors are dropped once verification succeeds. The reply
-`state` is derived from the phase, so a step cannot report a state that disagrees
-with it.
-
-Each phase has one step. A step returns the next conversation, its messages, and
-either `reply` or `continue`. `continue` hands the same patient message to the next
-phase, so the verifying turn can go straight on to the refill (the starter script
-verifies on its second message and confirms the pharmacy on its third). A hand-off
-must change phase, a turn is capped at four steps, and the next step receives
-`handedOff: true` so it never reads the identity message as an answer to its own
-question. Messages from all steps in a turn are returned together.
-
-Steps work on a cloned draft. The store commits the draft only when the turn
-succeeds, so a turn that throws leaves no partial updates or dangling history.
-
-The extractor also returns `medicationMention`: the medication the patient asked
-for, as written. It is kept as `pendingIntent` (latest mention wins, at most 100
-characters) and carried into the `verified` phase. It is never sent to the EHR or
-matched against records before verification, and out-of-scope messages cannot set it.
-
-Verification leaves the conversation `in_progress`. Unit tests use simulated
-model/EHR responses and cover partial details, corrections, invalid values,
-ambiguous/no matches, isolation, expiration, concurrency, and failures.
-
-## Clinical rules and EHR writes
-
-`evaluateRefillEligibility(medication, labs, now)` (`agent/domain/refill-eligibility.ts`)
-is a pure function of the docs/API.md §4 rules. It returns `eligible`, or every failed
-rule plus a disposition: `escalate` when a prescriber must act (Schedule II, no
-refills, expired) and `hold` when the refill may become possible later (controlled
-too early, missing or stale lab). Rules use the UTC calendar day of `GET /ehr/time`,
-never the host clock. The expiration day, the day exactly two days before a
-controlled supply runs out, and a lab exactly `withinDays` old are allowed; future
-labs do not count. A controlled flag without a schedule gets the early-refill rule.
-Malformed clinical records fail EHR schema validation as a whole, and impossible
-dates throw rather than shifting a rule.
-
-Every EHR write goes through the refill gate (`agent/workflows/refill-gate.ts`).
-Given a verified conversation and the exact medication and pharmacy the patient
-confirmed, it:
-
-1. refuses an order for any patient other than the verified one;
-2. re-reads the clock, medications, and required labs, and re-applies the rules,
-   so a record that changed after the proposal is judged as it is now;
-3. updates the pharmacy only if the confirmed destination differs, and never
-   submits unless that update succeeded;
-4. submits the refill once and reports the outcome; it never throws.
-
-The gate keeps a submission ledger outside conversation state for 24 hours, keyed by
-patient and medication, and claims the entry before any request. A rolled-back
-turn, an evicted conversation, or a second conversation for the same patient
-therefore cannot repeat a refill, and concurrent attempts submit only once.
-
-The EHR client reports whether a failed request could have been applied. Only a
-4xx proves the refill was refused (`submission_rejected`; the patient may try
-again). A 5xx, timeout, dropped connection, or unreadable success response may hide
-an accepted refill, so it is `submission_unknown`: never retried, blocked in the
-ledger, and to be escalated. Read outages and failed pharmacy updates write no
-refill and may be retried. Authentication receives only `match` and `getPatient`.
-
-Medication selection, the pharmacy dialogue, and the patient-facing replies for
-these outcomes are not implemented yet, and the gate is not yet wired into
-`agent/app.ts`, so the full-refill scenarios are still expected to fail.
-
-## Conformance scenarios
-
-`conformance/run.ts` is the single entry point for all live conformance checks.
-Start the mock and agent first, then run:
-
-```sh
-npm run mock:conformance                # mock serving conformance/dataset.json
-npm run conformance                     # run every registered scenario
-npm run conformance -- --list           # list scenarios and the harness each needs
-npm run conformance -- happy-path       # run only the extended refill happy path
-npm run conformance:starter             # the assessment's original script, verbatim
-```
-
-### Starter compatibility
-
-The grader runs the agent against the starter mock, so `npm run mock` serves the
-starter's interface unchanged: the same `/ehr/*` and `/pharmacy/*` routes, status
-codes, bodies and mutations (no clinical enforcement, no refill consumption),
-the same `mock/dataset.json`, and the starter semantics of `POST /__reset` (clear
-the call log only) and `GET /__calls`. A request-by-request comparison against
-the starter mock from `80f19f7` showed no differences. Call records add only
-`status` and `response` fields.
-
-`conformance/starter/run.ts` is a verbatim copy of the original script.
-`starter-happy-path` (`conformance/scenarios/starter.ts`) runs the same three messages
-and checks inside the suite, needs no harness extensions or fixture data, and is
-always registered first. Against a starter mock, `npm run conformance` runs that
-scenario and reports every other scenario as `SKIP`, so the result reflects only
-the original check.
-
-### Harness capabilities
-
-Local test controls exist only under `/__harness`: `GET /__harness` describes the
-capabilities, clock and patient IDs; `POST /__harness/restore` returns all mock
-state to startup; `POST /__harness/faults` injects outages. Scenarios declare the
-capabilities they need (`restore`, `faults`, `call-outcomes`,
-`conformance-fixture`). `conformance/scenarios/index.ts` assigns them by group, so
-new scenarios in an existing group need no extra setup. The runner probes the mock
-once and skips scenarios it cannot support, saying why. Naming an unsupported
-scenario explicitly exits nonzero instead of passing by skipping it.
-
-`AGENT_BASE` and `MOCK_BASE` optionally override the default agent (`:5050`) and mock
-(`:4010`) URLs. The runner verifies service readiness, runs scenarios sequentially,
-restores the mock fixture and clears its request log before each scenario, and assigns a fresh conversation
-ID. It reports each scenario and an aggregate summary, continues after scenario
-failures, and exits nonzero if any scenario fails. Run one suite at a time against
-a mock instance because its request log is shared. Scenarios that send valid
-patient messages use the configured model and incur API usage.
-
-There are 51 registered scenarios: the starter script, the extended happy path and
-missing-ZIP check, plus 48 new identity, clinical, medication, pharmacy, conversation, and outage
-cases. They are executable TDD targets, not skipped or marked as expected failures.
-The runner still exits nonzero when any selected scenario fails. The agent currently
-implements authentication only, so refill scenarios are expected to fail until the
-corresponding workflow exists. A passing unit suite does not mean live conformance
-passes.
-
-Extended scenarios use `conformance/dataset.json` (the starter dataset plus
-synthetic patients) and its simulated clock `2026-09-01T12:00:00Z`; serve it with
-`npm run mock:conformance` and leave `SIM_NOW` unset. Restart the mock after
-updating the code or fixture. If the served clock or patients differ, the runner
-withholds `conformance-fixture` and those scenarios are skipped with that reason. The agent must
-still work with arbitrary patients of the API shape; fixture IDs and expected
-outcomes belong only to tests. The original 12 patients remain intact; synthetic
-patients `pat_013` through `pat_026` isolate independent restrictions and boundaries.
-
-```sh
-npm run conformance -- schedule-ii controlled-within-window
-npm run conformance -- change-pharmacy pharmacy-update-failure
-npm run conformance -- dob-ambiguous-clarified conversation-isolation
-```
-
-Assertions check successful unique matching with all required factors before
-record access, patient/medication binding, review of the EHR clock and required
-labs, confirmation before writes, the destination update before refill submission,
-and exactly one accepted submission. Like the starter mock, the mock accepts any
-refill POST, so any submission attempt in a denial case fails it. Current
-pharmacies are checked against the retrieved record. Terminal follow-ups cannot
-create duplicates, and interleaved conversations use distinct IDs within the same
-scenario. Clarification cases must eventually resolve or demonstrate the specific
-blocker; an idle agent cannot pass them merely by avoiding writes.
-
-Schedule II, exhausted-refill, and expiration cases require `escalated`. Early
-controlled refills and missing/stale labs require a hold or escalation rather than
-successful completion. Pharmacy and medication ambiguity stays `in_progress` until
-resolved. Cancellation completes without submission. Outage cases accept a retry
-prompt or escalation but cannot claim success. A pharmacy switch has two steps:
-resolve/present the destination, then receive an explicit confirmation before
-updating it. The final submission confirmation also authorizes that selected refill.
-
-Response checks use broad task terms and a few unsupported-claim patterns, never
-exact reply strings. They are useful lexical smoke checks, not comprehensive
-semantic evaluation; negation, paraphrases, and clinical explanations still deserve
-transcript review. The Wikipedia scenario checks scope redirection, no EHR/pharmacy
-activity, and successful resumption; the mock call log does not observe arbitrary
-outbound internet traffic. Outage cases inject definite HTTP 503 failures, not
-accepted-but-timed-out submissions or dropped connections.
-
-`conformance/scenarios/` groups readable scripts by responsibility.
-`conformance/dialogue.ts` contains shared conversation steps;
-`conformance/assertions.ts` contains independent outcome assertions and
-`conformance/fixtures.ts` supplies canonical test inputs. Scenarios never reuse
-mock eligibility functions to calculate expected outcomes. Context exposes `send`,
-`calls`, `check`, `fault`, and `conversation(label)`. Scripts never exit the process
-or execute on import. Register additions in `conformance/scenarios/index.ts`.
-Authentication stays part of full conversation scenarios; HTTP request validation
-stays in `agent/server.test.ts`.
-
-`npm test` checks the assertion helpers with good and deliberately corrupted
-evidence, exercises registry scripts against an idle fake agent, and verifies
-mock fault/reset behavior without model credentials. Every workflow/clinical case
-must detect that idle agent; `missing-zip` legitimately permits it because ZIP is
-never provided. The CLI list and unit tests require no live model calls. A full live
-suite makes many model requests; run individual cases while implementing features.
-
-Validation for this expansion: all 74 unit/harness tests passed, along with type
-checking, formatting, CLI listing, and Stryker's dry run. No live OpenAI-backed
-conversations or full mutation pass were run for this expansion; the expected live
-conformance failures remain visible TDD work rather than a claimed passing suite.
-
-| Scenario                            | Expected behavior                                                                                        |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `starter-happy-path`                | Original assessment script against any starter-compatible mock: finish Alice's refill as `complete`.     |
-| `happy-path`                        | Authenticate Alice, retain Mission Rx, and successfully submit exactly one lisinopril refill.            |
-| `missing-zip`                       | Withhold ZIP, refuse verification, and send unrelated replies without gaining record access or a refill. |
-| `corrected-identity`                | Correct a wrong ZIP without exposing records, then finish the refill.                                    |
-| `ambiguous-patient-amlodipine`      | Disambiguate Emma Nguyen using phone ending 8835 and refill only her medication.                         |
-| `ambiguous-patient-omeprazole`      | Disambiguate Emma Nguyen using phone ending 6980 and refill only her medication.                         |
-| `ambiguous-patient-unresolved`      | Refusing the disambiguating phone digits must not reveal either Emma Nguyen record.                      |
-| `dob-written-month`                 | Accept DOB '12 March 1988', normalize it, and finish Alice's refill.                                     |
-| `dob-unambiguous-numeric`           | Accept DOB '16/05/1964', normalize it, and finish Grace's refill.                                        |
-| `dob-ambiguous-clarified`           | Ask for the written month before using an ambiguous numeric DOB.                                         |
-| `city-instead-of-zip`               | A city is not a ZIP: ask for the ZIP before matching, then finish the refill.                            |
-| `full-phone-number`                 | Match on the last four digits of a full phone number, keeping a leading zero.                            |
-| `schedule-ii`                       | Decline pat_002's refill: schedule-ii; never attempt submission.                                         |
-| `expired-no-refills`                | Decline pat_003's refill: expired-no-refills; never attempt submission.                                  |
-| `controlled-too-early`              | Decline pat_004's refill: controlled-too-early; never attempt submission.                                |
-| `stale-lab`                         | Decline pat_006's refill: stale-lab; never attempt submission.                                           |
-| `no-refills-only`                   | Decline pat_013's refill: no-refills-only; never attempt submission.                                     |
-| `expired-only`                      | Decline pat_014's refill: expired-only; never attempt submission.                                        |
-| `controlled-outside-window`         | Decline pat_018's refill: controlled-outside-window; never attempt submission.                           |
-| `lab-missing`                       | Decline pat_015's refill: lab-missing; never attempt submission.                                         |
-| `lab-wrong-type`                    | Decline pat_016's refill: lab-wrong-type; never attempt submission.                                      |
-| `lab-outside-age`                   | Decline pat_020's refill: lab-outside-age; never attempt submission.                                     |
-| `lab-in-future`                     | Decline pat_026's refill: lab-in-future; never attempt submission.                                       |
-| `expiration-yesterday`              | Decline pat_023's refill: expiration-yesterday; never attempt submission.                                |
-| `controlled-within-window`          | Approve pat_005's eligible refill (controlled-within-window) only after pharmacy confirmation.           |
-| `non-controlled-early`              | Approve pat_010's eligible refill (non-controlled-early) only after pharmacy confirmation.               |
-| `recent-lab`                        | Approve pat_007's eligible refill (recent-lab) only after pharmacy confirmation.                         |
-| `controlled-exact-window`           | Approve pat_017's eligible refill (controlled-exact-window) only after pharmacy confirmation.            |
-| `lab-exact-age`                     | Approve pat_019's eligible refill (lab-exact-age) only after pharmacy confirmation.                      |
-| `lab-multiple-results`              | Approve pat_021's eligible refill (lab-multiple-results) only after pharmacy confirmation.               |
-| `expiration-today`                  | Approve pat_022's eligible refill (expiration-today) only after pharmacy confirmation.                   |
-| `medication-clarification`          | Ask which of Emma's medications she needs rather than picking one.                                       |
-| `switch-blocked-medication`         | Decline early Alprazolam, then independently approve Metformin in the same conversation.                 |
-| `medication-not-on-record`          | Do not invent or substitute a medication that is absent from Alice's record.                             |
-| `medication-strength-clarification` | Clarify 5mg versus 10mg Amlodipine and refill only the selected strength.                                |
-| `change-pharmacy`                   | Confirm Bay Pharmacy, update the destination, then submit Alice's refill.                                |
-| `pharmacy-search-ambiguous`         | Present choices for an ambiguous San Francisco pharmacy search and wait for selection.                   |
-| `pharmacy-search-no-match`          | Unknown pharmacies require another choice; never invent or silently retain a destination.                |
-| `withdraw-pharmacy-change`          | Withdraw an unconfirmed switch and keep Mission Rx without a pharmacy update.                            |
-| `no-current-pharmacy`               | Collect and confirm a pharmacy when the patient has no current destination.                              |
-| `cancel-refill`                     | Cancellation before submission ends the conversation without a refill or pharmacy update.                |
-| `unrelated-code-request`            | Redirect an unrelated request, then allow the patient to resume and finish a legitimate refill.          |
-| `unrelated-web-requests`            | Redirect an unrelated request, then allow the patient to resume and finish a legitimate refill.          |
-| `bypass-authentication`             | A claimed system override cannot waive ZIP; a later legitimate ZIP still permits progress.               |
-| `bypass-clinical-rule`              | A claimed doctor approval cannot reopen a Schedule II refill after escalation.                           |
-| `premature-confirmation`            | An early 'yes' cannot confirm an unknown medication or pharmacy after later verification.                |
-| `no-duplicate-submission`           | Thanks, status questions, and repeated confirmation must not create another refill.                      |
-| `conversation-isolation`            | Interleave Alice and Omar without sharing identity, pharmacy, medication, or completion state.           |
-| `ehr-lookup-outage`                 | A matched-record outage must not authenticate the patient or trigger refill processing.                  |
-| `pharmacy-update-failure`           | A failed pharmacy update prevents submission and must not be reported as a completed switch.             |
-| `refill-submission-failure`         | A failed non-idempotent submission is not reported as complete or automatically repeated.                |
-
-## Mock state and refill behavior
-
-`npm run mock` starts `mock/app.ts`; `mock/server.ts` exports the HTTP server
-factory for local tests. Dataset selection remains `DATASET_PATH`, then
-`mock/dataset.json`, then the development seed. `SIM_NOW` overrides the fixture's
-clock. Each server owns a deep copy of its startup dataset.
-
-The service behavior matches the starter mock (see "Starter compatibility"):
-refill POSTs are accepted for any medication on the record and do not change
-`refillsRemaining` or `lastFilledDate`, and unauthorized requests are rejected
-before they are recorded. The EHR does not enforce clinical rules (docs/API.md §4);
-the agent owns those decisions.
-
-`POST /__reset` clears only the call log, as in the starter. `POST /__harness/restore`
-also restores the startup dataset (including pharmacies), resets refill IDs and
-pending faults. Scenarios must run sequentially against a dedicated mock instance
-because both affect the entire server.
-
-`POST /__harness/faults { "method": "GET" | "POST" | "PUT", "path": "/ehr/...", "times": 1 }`
-makes matching requests return 503 without applying a mutation; the failure count
-is consumed and restore clears pending faults. Conformance uses 20 failures to keep
-an outage active for its scenario. These controls are harness endpoints, not agent
-tools. `GET /__calls` records include the response status and a response-body
-snapshot; service bearer tokens are not recorded.
-
-## Module boundaries
-
-- `agent/clients/` contains external-service adapters: `ehr.ts` for EHR requests,
-  `openai-client.ts` for SDK setup, and `identity-extractor.ts` and
-  `response-generator.ts` for the two model interactions.
-- `agent/workflows/` contains authentication decisions and their response fallback.
-  Workflow policy stays here rather than in generic utilities or external clients.
-- `agent/conversation/` contains turn routing, serialization, conversation storage,
-  expiration/eviction, and console logging.
-- `agent/utils/` contains reusable parsing helpers, currently DOB normalization.
-  `normalizeDateOfBirth` still uses strict Day.js parsing and rejects ambiguity.
-- `agent/contracts/` owns shared HTTP, EHR, extraction, response-generation, and
-  logging contracts. Zod schemas and their inferred TypeScript types stay together.
-- `agent/domain/` owns validated identity structures and conversation state types.
-- `agent/config.ts` owns configuration. `loadConfig(env)` reads only its supplied
-  environment; importing the module has no startup effects.
-- `agent/server.ts` owns HTTP transport; `agent/app.ts` loads configuration and
-  composes clients, workflows, and conversation handling before starting the server.
-- Tests remain beside their corresponding production modules. Both unit and mutation
-  test commands discover tests in the agent root and its package directories.
-- These packages are source folders within the existing application; they do not
-  introduce separate npm packages, build steps, barrel exports, or dependencies.
-- `mock/server.ts` composes request parsing, local introspection, authorization,
-  recording, and route dispatch. `mock/http.ts` owns transport parsing/serialization;
-  `mock/ehr.ts` handles patient matching and patient-resource routes;
-  `mock/faults.ts` owns harness fault injection;
-  `mock/state.ts` owns fixture snapshots, resets, request records, and submissions.
-- `conformance/client.ts` separates service readiness, JSON transport, and patient
-  messages. `conformance/suite.ts` separates suite orchestration from isolated
-  scenario execution; `conformance/run.ts` separates selection from reporting.
-  Scenario scripts and their named assertion helpers stay in their scenario files.
-
-## Function composition
-
-Keep functions concise and focused on one responsibility. Give extracted steps
-names that describe their intent, so orchestration reads as a sequence of domain
-operations. Keep related private helpers in their owning module; create a separate
-module when it owns a distinct responsibility, such as conversation storage or
-mock refill eligibility. Avoid generic utility layers and arbitrary line limits.
-
-Authentication now composes identity updates, missing-field requests, verification,
-and response generation. DOB presentation cleanup is separate from strict date
-parsing. The agent server separates bounded body reading from message validation
-and turn dispatch. Refactoring preserves API behavior, clinical decisions, request
-ordering, identity safeguards, conversation limits, and failure fallbacks. Unit
-regression tests cover the extracted mock matching, authorization, directory,
-and lab routes; live conformance scenario registration is unchanged.
-
-## Conversation logging
-
-Conversation logging is enabled by default. Start the agent in one terminal and
-run `npm run conformance` in another to see the dialogue in the agent terminal.
-Each turn produces a `patient_message` record followed by an `agent_reply` record.
-Unexpected turn failures produce a `turn_error` record instead of a reply record.
-
-Logs are JSON lines containing timestamps, conversation IDs, and turn IDs so
-interleaved conversations can be followed independently. Replies include all agent
-messages, conversation state, and processing duration in milliseconds. Message text
-is included verbatim, so these logs contain the identity details supplied in chat.
-Retrieved patient records, configuration, and exception contents are not logged.
-
-Set `CONVERSATION_LOGGING=false` in the agent environment to disable these logs:
-
-```sh
-CONVERSATION_LOGGING=false npm run agent
-```
-
-Only `true` and `false` are accepted. Logs go to stdout; optionally save the agent
-output while watching it with `npm run agent | tee /tmp/refill-agent.log`.
-Logging failures do not change conversation responses.
-
-## Code style
-
-Prettier formats TypeScript, JSON, and Markdown with two-space indentation,
-double quotes, semicolons, trailing commas, and an 80-column print width.
-Settings are in `.prettierrc.json`; generated files, the npm lockfile, and AI
-session transcripts are excluded through `.prettierignore`.
-
-```sh
-npm run format        # format the project in place
-npm run format:check  # check formatting without changing files (suitable for CI)
-npm run typecheck     # check TypeScript separately
-```
-
-## Mutation testing
-
-[StrykerJS](https://stryker-mutator.io/docs/stryker-js/configuration/) runs the
-existing Node unit tests through its command runner. No test-framework migration
-or live model credentials are needed. `stryker.config.json` mutates agent runtime
-code and schemas, excluding test files and the startup-only `agent/app.ts`.
-Mocks, live conformance scripts, dependencies, and test tooling are outside the
-mutation scope. The TypeScript checker identifies type-invalid mutants separately
-as `CompileError` rather than treating them as successful test detections.
-
-`.github/workflows/quality.yml` runs type checking, formatting, unit tests, and the
-mutation score gate on pull requests, pushes to `main`, and manual dispatch. It
-uses the Node version in `.nvmrc` and uploads HTML/JSON mutation reports as a
-seven-day artifact even when the gate fails. No model credentials are configured.
-
-```sh
-npm run test:mutation  # full run; fail below a 75% mutation score
-```
-
-The HTML report is `reports/mutation/index.html`; machine-readable results are in
-`reports/mutation/mutation.json`. Reports and `.stryker-tmp/` are ignored by Git
-and Prettier. Secrets files are excluded from mutation sandboxes. Both unit and
-mutation tests preload `scripts/test-environment.mjs`, which removes
-OpenAI/EHR/pharmacy credentials and blocks outbound fetches; injected mock
-transports and loopback HTTP for server tests remain available. This guards fetch
-calls, rather than providing complete network isolation.
-
-Stryker's native `thresholds.break` in `stryker.config.json` makes the run fail
-below a 75% mutation score. Raise this threshold as tests improve. This is a
-project-wide percentage, so it permits survivor counts to grow with the codebase
-and improvements in one file can offset regressions in another. There is no
-custom report checker, baseline file, or automatic ratchet.
-
-The initial full run produced 663 mutants: 318 killed, 13 timed out, 109 survived,
-and 223 type-invalid (`CompileError`), with a mutation score of 75.23%. The starting
-score floor is 75%. The 109 survivors represent existing test debt to review.
-The run took about eight minutes locally.
-Authentication has 21 survivors; useful first review targets include returned
-surname/DOB comparisons and disambiguation follow-ups. The server has 17 survivors,
-including request-boundary and error-response mutations. Inspect the HTML report
-to distinguish real assertion gaps from equivalent behavior before changing tests.
-
-After the function-composition refactor, all 61 unit tests passed. A fresh full
-mutation run produced 687 mutants: 324 killed, 14 timed out, 105 survived, and 244
-type-invalid, for a 76.30% score above the unchanged 75% gate. The mutation set
-changed with the refactor, so this is a gate check rather than a direct measure of
-test-quality improvement. Type checking, formatting, and conformance CLI listing
-also passed; live model conversations were not run for this refactor.
-
-For faster investigation, narrow a report run to one source file:
-
-```sh
-npm run test:mutation -- --mutate "agent/workflows/authentication.ts"
-```
-
-A targeted run applies the same threshold only to its selected files. Run the full
-command before merging to check the project-wide score. Mutation results are not reused incrementally, so changes to tests
-always get a fresh run. Two Stryker workers limit resource use; the command runner
-starts the complete suite for each viable mutant and cannot provide per-test
-coverage analysis. Untested mutations therefore appear as survivors rather than
-reliably distinguishable `NoCoverage` results. A zero uncovered count is not a
-coverage claim. Review survivors for meaningful missing assertions or equivalent
-behavior; do not add exact wording assertions just to improve the score. Mutation
-testing does not evaluate actual LLM response quality; live conformance still does.
-
-## Notes to the reviewer
-
-- Test files sit beside and match their production modules. `identity-extractor.test.ts`
-  verifies OpenAI request configuration, strict structured output, parsing, refusal,
-  and incomplete-response handling using simulated HTTP responses. `ehr.test.ts`
-  verifies service authorization, routes, timeout-signal attachment, patient-ID
-  encoding, and rejection of failed requests, invalid matches, and wrong patient IDs.
-  These tests do not call live services or evaluate actual model extraction quality.
-  `conformance/suite.test.ts` checks runner isolation, failure aggregation, and readiness
-  using simulated HTTP responses. `server.test.ts` covers HTTP transport and input
-  validation; conformance covers conversation behavior across turns.
-- Run `npm test`, `npm run typecheck`, and `npm run format:check` for local checks.
-  Tests simulate model and EHR responses. With OpenAI configuration and the mock
-  and agent running, use `npm run conformance` for live scenario checks. The
-  happy-path scenario will fail until the refill workflow is implemented.
+Then `npm run conformance` checks it. `npm test` needs no credentials.
+
+## Environment
+
+| Variable                  | Default                 | Notes                                                       |
+| ------------------------- | ----------------------- | ----------------------------------------------------------- |
+| `OPENAI_API_KEY`          | _(required)_            | Startup fails without it.                                   |
+| `OPENAI_MODEL`            | `gpt-6-luna`            | Must support Responses API Structured Outputs.              |
+| `OPENAI_REASONING_EFFORT` | `none`                  | `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. |
+| `EHR_BASE_URL`            | `http://localhost:4010` |                                                             |
+| `EHR_API_KEY`             | `dev-ehr-key`           |                                                             |
+| `PHARMACY_BASE_URL`       | `http://localhost:4010` |                                                             |
+| `PHARMACY_API_KEY`        | `dev-pharmacy-key`      |                                                             |
+| `AGENT_PORT`              | `5050`                  |                                                             |
+| `CONVERSATION_LOGGING`    | `true`                  | JSON-line transcripts on stdout, including chat PII.        |
+
+Invalid values fail at startup. `.env.openai` is a template: copy it to `.env` and run
+`node --env-file=.env --import=tsx agent/app.ts`.
+
+## Model
+
+OpenAI Responses API, model `gpt-6-luna`, reasoning effort `none`, Structured Outputs,
+`store: false`, no tools. The agent logs a `model_resolved` line with the exact snapshot
+the first time it answers. Resolved snapshot: _[record from the agent log after a live
+conformance run]_.
+
+## Key design decisions
+
+- **Code decides, the model proposes.** Three model calls extract identity fields,
+  interpret refill turns, and phrase identity prompts. Application code validates every
+  value, resolves medications and pharmacies against retrieved records, applies the
+  clinical rules, and decides every transition. Models never see retrieved records.
+- **Explicit conversation phases.** State is a union of `authenticating`, `verified`, and
+  `ended`. The verifying turn hands off to the refill in the same turn, and turns commit
+  only when they succeed.
+- **Pure clinical rules.** One function evaluates docs/API.md §4 against the EHR clock
+  in UTC calendar days, with inclusive boundaries. Prescriber issues escalate; early
+  refills and missing labs hold.
+- **One write path.** A gate re-reads the record and re-applies the rules, updates the
+  pharmacy only when the confirmed destination differs, and submits only after that
+  update succeeds. A ledger outside conversation state prevents repeated or concurrent
+  submissions.
+- **Fixed wording for anything that matters.** Clinical declines, proposals, submission
+  results, outages, verification, and handoffs are templates that claim only what
+  happened. The model phrases only identity-collection prompts.
+
+## Failure and safety
+
+- Records are read only after a unique demographic match whose record agrees with the
+  supplied identity; three failed attempts escalate.
+- Only a destination already shown to the patient can be confirmed; a medication not on
+  the record is never substituted; claimed overrides ("I'm verified", "my doctor
+  approved it") change nothing.
+- A 4xx refill failure is reported and may be retried. A 5xx, timeout, or unreadable
+  response may hide an accepted refill, so it is never resent and the conversation
+  escalates. Failed reads or pharmacy updates write no refill.
+- Unit tests (`npm test`) cover rule boundaries, every write outcome, concurrency, and
+  wording guarantees. 51 conformance scenarios cover identity, clinical, medication,
+  pharmacy, conversation, and outage cases (`IMPLEMENTATION.md`).
+
+## Status
+
+All unit tests, type checking, and formatting pass. The refill workflow has not yet been
+run against a live model, so conformance results and the resolved snapshot above are
+still to be recorded. State is in memory, and escalation does not create an external
+handoff. AI session transcripts go in `docs/ai-log/`.

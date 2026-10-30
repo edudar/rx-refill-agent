@@ -1,8 +1,5 @@
-import {
-  EhrRequestError,
-  type EhrClient,
-  type Medication,
-} from "../contracts/ehr.js";
+import type { EhrClient, Medication } from "../contracts/ehr.js";
+import { ServiceRequestError } from "../contracts/service-errors.js";
 import type { VerifiedConversation } from "../domain/conversation.js";
 import {
   evaluateRefillEligibility,
@@ -112,7 +109,7 @@ async function reviewEligibility(
     const labs = required ? await ehr.getLabs(patientId, required.type) : [];
     eligibility = evaluateRefillEligibility(medication, labs, now);
   } catch (error) {
-    return error instanceof EhrRequestError
+    return error instanceof ServiceRequestError
       ? { status: "unavailable" }
       : { status: "cannot_evaluate" };
   }
@@ -153,7 +150,7 @@ async function postRefill(
     const { refillId } = await ehr.submitRefill(patientId, medId);
     return { status: "submitted", refillId, pharmacyChanged };
   } catch (error) {
-    return error instanceof EhrRequestError && error.kind === "rejected"
+    return error instanceof ServiceRequestError && error.kind === "rejected"
       ? { status: "submission_rejected", pharmacyChanged }
       : { status: "submission_unknown", pharmacyChanged };
   }

@@ -36,10 +36,42 @@ export interface AuthenticatingConversation
   phase: "authenticating";
 }
 
-// Entry point for the refill workflow; identity factors are not carried over.
+export interface MedicationChoice {
+  medId: string;
+  name: string;
+}
+
+export interface PharmacyChoice {
+  pharmacyId: string;
+  name: string;
+  address?: string;
+}
+
+// presented lists every destination shown to the patient for this refill; only
+// those can be confirmed without first being proposed.
+export type RefillState =
+  | { step: "choosing_medication"; options: MedicationChoice[] }
+  | {
+      step: "choosing_pharmacy";
+      medication: MedicationChoice;
+      current: PharmacyChoice | null;
+      options: PharmacyChoice[];
+      presented: PharmacyChoice[];
+    }
+  | {
+      step: "confirming";
+      medication: MedicationChoice;
+      current: PharmacyChoice | null;
+      pharmacy: PharmacyChoice;
+      presented: PharmacyChoice[];
+    };
+
+// Identity factors are not carried over. Without refill state, the workflow
+// starts by resolving which medication the patient wants.
 export interface VerifiedConversation extends ConversationBase {
   phase: "verified";
   patient: PatientRecord;
+  refill?: RefillState;
 }
 
 export interface EndedConversation extends ConversationBase {

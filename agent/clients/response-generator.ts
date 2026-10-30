@@ -29,7 +29,6 @@ For verification_unavailable, explain that verification is temporarily unavailab
 No action permits saying that identity was verified; the application states that itself.
 If the patient already named a prescription, acknowledge it rather than asking for it again;
 the refill itself is handled after verification.
-For escalate, explain that verification could not be completed and ask them to contact their care team.
 None of these actions permits claiming a refill was submitted, a pharmacy confirmed/changed,
 or a human contacted.
 

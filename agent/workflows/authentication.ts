@@ -99,16 +99,11 @@ async function respondToDecision(
   decision: AuthenticationDecision,
   generateResponse: ResponseGenerator,
 ): Promise<StepResult> {
-  let text: string;
-  try {
-    const generated = await generateResponse({
-      decision: structuredClone(decision),
-      messages: conversation.history.map(({ from, text }) => ({ from, text })),
-    });
-    text = generatedResponseSchema.parse(generated).text;
-  } catch {
-    text = responseFallback(decision);
-  }
+  // A handoff is stated in fixed wording, never generated.
+  const text =
+    decision.action === "escalate"
+      ? responseFallback(decision)
+      : await generatedText(conversation, decision, generateResponse);
   return {
     conversation:
       decision.action === "escalate"
@@ -121,6 +116,22 @@ async function respondToDecision(
     messages: [{ from: "agent", text }],
     next: "reply",
   };
+}
+
+async function generatedText(
+  conversation: AuthenticatingConversation,
+  decision: AuthenticationDecision,
+  generateResponse: ResponseGenerator,
+) {
+  try {
+    const generated = await generateResponse({
+      decision: structuredClone(decision),
+      messages: conversation.history.map(({ from, text }) => ({ from, text })),
+    });
+    return generatedResponseSchema.parse(generated).text;
+  } catch {
+    return responseFallback(decision);
+  }
 }
 
 // Verification is stated by application code, never by the response model.

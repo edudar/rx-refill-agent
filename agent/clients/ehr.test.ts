@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createEhrClient } from "./ehr.js";
-import { EhrRequestError, type EhrFailureKind } from "../contracts/ehr.js";
+import {
+  ServiceRequestError,
+  type ServiceFailureKind,
+} from "../contracts/service-errors.js";
 
 test("EHR requests use service auth, fixed routes, deadlines, and encoded patient IDs", async () => {
   const calls: string[] = [];
@@ -131,7 +134,7 @@ test("EHR record and write routes encode IDs and validate responses", async () =
 });
 
 test("EHR failures say whether the service could have acted on the request", async () => {
-  const cases: [() => Promise<Response>, EhrFailureKind][] = [
+  const cases: [() => Promise<Response>, ServiceFailureKind][] = [
     [async () => Response.json({ error: "x" }, { status: 409 }), "rejected"],
     [async () => Response.json({ error: "x" }, { status: 503 }), "unavailable"],
     [
@@ -152,7 +155,7 @@ test("EHR failures say whether the service could have acted on the request", asy
     await assert.rejects(
       ehr.submitRefill("p-1", "m-1"),
       (error) =>
-        error instanceof EhrRequestError &&
+        error instanceof ServiceRequestError &&
         error.kind === kind &&
         !/socket|"x"/.test(error.message),
     );

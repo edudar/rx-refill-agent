@@ -30,6 +30,10 @@ test("configuration loads explicitly with existing service defaults", () => {
       reasoning: { effort: "none" },
     },
     ehr: { baseUrl: "http://localhost:4010", apiKey: "dev-ehr-key" },
+    pharmacy: {
+      baseUrl: "http://localhost:4010",
+      apiKey: "dev-pharmacy-key",
+    },
     port: 5050,
     conversationLogging: true,
   });
@@ -42,6 +46,8 @@ test("configuration accepts environment overrides without retaining unrelated va
     AGENT_PORT: "6060",
     EHR_BASE_URL: "https://ehr.example.test",
     EHR_API_KEY: "custom-ehr-key",
+    PHARMACY_BASE_URL: "https://pharmacy.example.test",
+    PHARMACY_API_KEY: "custom-pharmacy-key",
     UNRELATED_SETTING: "not-agent-configuration",
     CONVERSATION_LOGGING: "false",
   });
@@ -52,6 +58,10 @@ test("configuration accepts environment overrides without retaining unrelated va
       reasoning: { effort: "low" },
     },
     ehr: { baseUrl: "https://ehr.example.test", apiKey: "custom-ehr-key" },
+    pharmacy: {
+      baseUrl: "https://pharmacy.example.test",
+      apiKey: "custom-pharmacy-key",
+    },
     port: 6060,
     conversationLogging: false,
   });
@@ -68,6 +78,7 @@ test("configuration fails before startup for missing credentials or invalid sett
     { ...credentials, AGENT_PORT: "65536" },
     { ...credentials, EHR_BASE_URL: "file:///tmp/ehr" },
     { ...credentials, EHR_BASE_URL: "not-a-url" },
+    { ...credentials, PHARMACY_BASE_URL: "ftp://pharmacy.test" },
     { ...credentials, CONVERSATION_LOGGING: "invalid" },
   ]) {
     assert.throws(() => loadConfig(env));

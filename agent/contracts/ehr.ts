@@ -64,22 +64,6 @@ export type LabResult = z.infer<typeof labResultSchema>;
 export type CurrentPharmacy = z.infer<typeof currentPharmacySchema>;
 export type RefillSubmission = z.infer<typeof refillSubmissionSchema>;
 
-// What a failed request says about whether the EHR acted on it:
-// rejected (4xx) was refused; every other kind may or may not have been applied.
-export type EhrFailureKind =
-  "rejected" | "unavailable" | "no_response" | "invalid_response";
-
-export class EhrRequestError extends Error {
-  constructor(
-    readonly kind: EhrFailureKind,
-    readonly status?: number,
-  ) {
-    // Messages never include response bodies, which may carry patient data.
-    super(`EHR request failed (${kind}${status ? ` ${status}` : ""})`);
-    this.name = "EhrRequestError";
-  }
-}
-
 export interface EhrClient {
   match(factors: IdentityFactors): Promise<PatientMatch>;
   getPatient(patientId: string): Promise<PatientRecord>;
