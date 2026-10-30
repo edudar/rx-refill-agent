@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Candidate fixture \u2014 prescription-refill agent assessment (mock EHR + pharmacy, skeleton agent, conformance check).",
+  "description": "Candidate fixture — prescription-refill agent assessment (mock EHR + pharmacy, skeleton agent, conformance check).",
   "engines": {
     "node": ">=22"
   },
@@ -31,5 +31,8 @@
     "dayjs": "1.11.23",
     "openai": "7.45.1",
     "zod": "4.6.7"
+  },
+  "overrides": {
+    "qs": "^6.17.1"
   }
 }
