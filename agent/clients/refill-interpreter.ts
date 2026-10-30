@@ -8,7 +8,8 @@ import {
   assertCompleted,
   createOpenAIClient,
   outputTokenLimit,
-  type ModelResolutionListener,
+  reportingFailures,
+  type ModelCallOptions,
 } from "./openai-client.js";
 
 const instructions = `You interpret one patient message for a prescription-refill assistant.
@@ -40,29 +41,35 @@ keepCurrentPharmacy: true when the patient asks to keep or use their current or 
 pharmacy without naming a different one.`;
 
 export function createRefillInterpreter(
-  options: ModelConfig & {
-    fetch?: typeof globalThis.fetch;
-    onModelResolved?: ModelResolutionListener;
-  },
+  options: ModelConfig & ModelCallOptions,
 ): RefillInterpreter {
   const client = createOpenAIClient(options);
-  return async ({ text, question, lastPrompt }) => {
-    const response = await client.responses.parse({
-      model: options.model,
-      reasoning: options.reasoning,
-      instructions,
-      input: JSON.stringify({ question, lastPrompt, patientMessage: text }),
-      text: {
-        format: zodTextFormat(
-          refillUnderstandingSchema,
-          "refill_understanding",
-        ),
+  return ({ text, question, lastPrompt }) =>
+    reportingFailures(
+      "Refill interpretation",
+      options.onModelFailure,
+      async () => {
+        const response = await client.responses.parse({
+          model: options.model,
+          reasoning: options.reasoning,
+          instructions,
+          input: JSON.stringify({ question, lastPrompt, patientMessage: text }),
+          text: {
+            format: zodTextFormat(
+              refillUnderstandingSchema,
+              "refill_understanding",
+            ),
+          },
+          max_output_tokens: outputTokenLimit(512, options.reasoning),
+          store: false,
+        });
+        assertCompleted(
+          "Refill interpretation",
+          response,
+          response.output_parsed,
+        );
+        options.onModelResolved?.(response.model);
+        return refillUnderstandingSchema.parse(response.output_parsed);
       },
-      max_output_tokens: outputTokenLimit(512, options.reasoning),
-      store: false,
-    });
-    assertCompleted("Refill interpretation", response, response.output_parsed);
-    options.onModelResolved?.(response.model);
-    return refillUnderstandingSchema.parse(response.output_parsed);
-  };
+    );
 }

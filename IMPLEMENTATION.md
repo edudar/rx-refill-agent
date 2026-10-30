@@ -224,6 +224,16 @@ and turn IDs, so interleaved conversations can be followed. Message text is verb
 so contains identity details supplied in chat. Retrieved records, configuration, and
 exception contents are not logged. Logging failures never change replies.
 
+Every failed model call also logs a `model_failed` line, whatever the conversation
+logging setting: the stage (identity extraction, response generation, or refill
+interpretation), the model, the error class, and, when present, the HTTP status, the
+OpenAI error `type` and `code`, the incomplete reason, the request ID, and any
+`x-ratelimit-*` response headers under `rateLimit` (for example `limit-requests`,
+`remaining-requests`, `reset-requests`). A rate limit appears as `RateLimitError` with
+status 429 and code `rate_limit_exceeded`; `rateLimit` shows which window was exhausted
+and when it resets. A spent quota appears as code `insufficient_quota`. Error messages are never logged, because they can
+quote request content. The caller's fallback reply is unchanged.
+
 ## Testing
 
 ```sh

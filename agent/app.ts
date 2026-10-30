@@ -5,7 +5,10 @@ import { createConsoleConversationLogger } from "./conversation/conversation-log
 import { loadConfig } from "./config.js";
 import { createEhrClient } from "./clients/ehr.js";
 import { createIdentityExtractor } from "./clients/identity-extractor.js";
-import { createModelResolutionLogger } from "./clients/openai-client.js";
+import {
+  createModelFailureLogger,
+  createModelResolutionLogger,
+} from "./clients/openai-client.js";
 import { createPharmacyDirectory } from "./clients/pharmacy.js";
 import { createRefillInterpreter } from "./clients/refill-interpreter.js";
 import { createResponseGenerator } from "./clients/response-generator.js";
@@ -16,6 +19,7 @@ const config = loadConfig(process.env);
 const model = {
   ...config.openai,
   onModelResolved: createModelResolutionLogger(config.openai),
+  onModelFailure: createModelFailureLogger(config.openai),
 };
 const ehr = createEhrClient(config.ehr);
 const handleTurn = createConversationHandler({
