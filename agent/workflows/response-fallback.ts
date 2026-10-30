@@ -3,8 +3,6 @@ import type { AuthenticationDecision } from "../contracts/response-generation.js
 // Used only when response generation fails; normal phrasing belongs to the model.
 export function responseFallback(decision: AuthenticationDecision): string {
   switch (decision.action) {
-    case "identity_verified":
-      return "Thanks, your identity is verified. Which prescription would you like to refill?";
     case "escalate":
       return "I couldn't verify your identity. Please contact your care team for help.";
     case "verification_unavailable":

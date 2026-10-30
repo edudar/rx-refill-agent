@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createConversationHandler } from "./conversation-handler.js";
-import type { AgentReply } from "../contracts/conversation.js";
+import type {
+  AgentMessage,
+  ConversationStep,
+} from "../contracts/conversation.js";
 import type { PatientRecord } from "../contracts/ehr.js";
-import type { Conversation } from "../domain/conversation.js";
+import {
+  conversationBase,
+  type AuthenticatingConversation,
+  type Conversation,
+  type VerifiedConversation,
+} from "../domain/conversation.js";
 
 const patient: PatientRecord = {
   patientId: "p-1",
@@ -14,51 +22,157 @@ const patient: PatientRecord = {
   zip: "94107",
 };
 
-test("routes verified conversations to the next workflow on subsequent turns", async () => {
-  const calls: string[] = [];
-  let session: Conversation | undefined;
+function agent(text: string): AgentMessage {
+  return { from: "agent", text };
+}
+
+function verify(
+  onCall: (conversation: AuthenticatingConversation) => void = () => {},
+): ConversationStep<AuthenticatingConversation> {
+  return async (conversation) => {
+    onCall(conversation);
+    return {
+      conversation: {
+        ...conversationBase(conversation),
+        phase: "verified",
+        patient,
+      },
+      messages: [agent("Verified.")],
+      next: "continue",
+    };
+  };
+}
+
+test("verification hands the same turn to the next phase, then routes later turns there", async () => {
+  const turns: string[] = [];
+  let stored: VerifiedConversation | undefined;
   const handleTurn = createConversationHandler({
-    authenticate: async (conversation, text) => {
-      calls.push(`authenticate:${text}`);
-      conversation.patient = patient;
-      session = conversation;
-      return {
-        messages: [{ from: "agent", text: "Verified. Which prescription?" }],
-        state: "in_progress",
-      };
-    },
-    handleAuthenticated: async (conversation, text) => {
-      assert.equal(conversation, session);
-      assert.equal(conversation.patient?.patientId, "p-1");
-      assert.equal(conversation.lastPrompt, "Verified. Which prescription?");
-      calls.push(`refill:${text}`);
-      return {
-        messages: [{ from: "agent", text: "Please confirm the pharmacy." }],
-        state: "in_progress",
-      };
+    steps: {
+      authenticating: verify(() => turns.push("authenticate")),
+      verified: async (conversation, turn) => {
+        stored = conversation;
+        turns.push(`refill:${turn.text}:${turn.handedOff}`);
+        assert.equal(conversation.patient.patientId, "p-1");
+        return {
+          conversation,
+          messages: [agent("Please confirm the pharmacy.")],
+          next: "reply",
+        };
+      },
     },
   });
 
-  await handleTurn("one", "identity details");
-  assert.deepEqual(calls, ["authenticate:identity details"]);
-  await handleTurn("one", "lisinopril");
-  assert.deepEqual(calls, [
-    "authenticate:identity details",
-    "refill:lisinopril",
+  const first = await handleTurn("one", "identity details");
+  assert.deepEqual(first, {
+    messages: [agent("Verified."), agent("Please confirm the pharmacy.")],
+    state: "in_progress",
+  });
+  await handleTurn("one", "yes");
+  assert.deepEqual(turns, [
+    "authenticate",
+    "refill:identity details:true",
+    "refill:yes:false",
   ]);
-  assert.equal(session?.lastPrompt, "Please confirm the pharmacy.");
+  assert.equal(stored?.lastPrompt, "Please confirm the pharmacy.");
+  assert.equal("factors" in (stored ?? {}), false);
+});
+
+test("without a refill workflow the verified phase replies with a placeholder", async () => {
+  const handleTurn = createConversationHandler({
+    steps: { authenticating: verify() },
+  });
+  const reply = await handleTurn("one", "identity details");
+  assert.equal(reply.state, "in_progress");
+  assert.equal(reply.messages[0].text, "Verified.");
+  assert.match(reply.messages[1].text, /not available yet/);
+});
+
+test("a pending refill intent survives the transition to the verified phase", async () => {
+  let received: VerifiedConversation | undefined;
+  const handleTurn = createConversationHandler({
+    steps: {
+      authenticating: async (conversation, turn) => {
+        if (turn.text !== "refill my lisinopril")
+          return verify()(conversation, turn);
+        conversation.pendingIntent = { medicationMention: "lisinopril" };
+        return {
+          conversation,
+          messages: [agent("Please share your identity.")],
+          next: "reply",
+        };
+      },
+      verified: async (conversation) => {
+        received = conversation;
+        return { conversation, messages: [agent("Done.")], next: "reply" };
+      },
+    },
+  });
+  await handleTurn("one", "refill my lisinopril");
+  await handleTurn("one", "identity details");
+  assert.deepEqual(received?.pendingIntent, {
+    medicationMention: "lisinopril",
+  });
+});
+
+test("a failed turn leaves the stored conversation unchanged", async () => {
+  const seen: Conversation[] = [];
+  let fail = true;
+  const handleTurn = createConversationHandler({
+    steps: {
+      authenticating: async (conversation) => {
+        seen.push(structuredClone(conversation));
+        conversation.factors.zip = "94107";
+        conversation.pendingIntent = { medicationMention: "lisinopril" };
+        if (fail) throw new Error("simulated failure");
+        return { conversation, messages: [agent("Thanks.")], next: "reply" };
+      },
+    },
+  });
+  await assert.rejects(handleTurn("one", "first"), /simulated failure/);
+  fail = false;
+  await handleTurn("one", "second");
+  const retried = seen[1] as AuthenticatingConversation;
+  assert.deepEqual(retried.factors, {});
+  assert.equal(retried.pendingIntent, undefined);
+  assert.deepEqual(retried.history, [{ from: "patient", text: "second" }]);
+});
+
+test("steps must change phase to continue and must produce a reply", async () => {
+  const stalled = createConversationHandler({
+    steps: {
+      authenticating: async (conversation) => ({
+        conversation,
+        messages: [],
+        next: "continue",
+      }),
+    },
+  });
+  await assert.rejects(stalled("one", "hello"), /without a transition/);
+  const silent = createConversationHandler({
+    steps: {
+      authenticating: async (conversation) => ({
+        conversation,
+        messages: [],
+        next: "reply",
+      }),
+    },
+  });
+  await assert.rejects(silent("one", "hello"), /produced no reply/);
 });
 
 test("keeps a bounded recent dialogue for response generation", async () => {
   let session: Conversation | undefined;
   const handleTurn = createConversationHandler({
-    authenticate: async (conversation) => {
-      session = conversation;
-      assert.ok(conversation.history.length <= 12);
-      return {
-        messages: [{ from: "agent", text: "Please share your ZIP." }],
-        state: "in_progress",
-      };
+    steps: {
+      authenticating: async (conversation) => {
+        session = conversation;
+        assert.ok(conversation.history.length <= 12);
+        return {
+          conversation,
+          messages: [agent("Please share your ZIP.")],
+          next: "reply",
+        };
+      },
     },
   });
   for (let index = 0; index < 20; index++)
@@ -66,45 +180,46 @@ test("keeps a bounded recent dialogue for response generation", async () => {
   assert.equal(session?.history.length, 12);
   assert.deepEqual(session?.history.slice(-2), [
     { from: "patient", text: "message-19" },
-    { from: "agent", text: "Please share your ZIP." },
+    agent("Please share your ZIP."),
   ]);
   assert.ok(!session?.history.some((message) => message.text === "message-0"));
 });
 
 test("replays completed or escalated replies without invoking another workflow", async () => {
-  for (const state of ["complete", "escalated"] as const) {
+  for (const outcome of ["complete", "escalated"] as const) {
     let authCalls = 0;
     let nextCalls = 0;
-    const terminalReply: AgentReply = {
-      messages: [
-        { from: "agent", text: "The refill workflow has ended." },
-        {
-          from: "agent",
-          text:
-            state === "complete"
-              ? "Your request was submitted."
-              : "Please contact your prescriber.",
-        },
-      ],
-      state,
-    };
+    const terminal = [
+      agent("The refill workflow has ended."),
+      agent(
+        outcome === "complete"
+          ? "Your request was submitted."
+          : "Please contact your prescriber.",
+      ),
+    ];
     const handleTurn = createConversationHandler({
-      authenticate: async (conversation) => {
-        authCalls++;
-        conversation.patient = patient;
-        return {
-          messages: [{ from: "agent", text: "Verified." }],
-          state: "in_progress",
-        };
-      },
-      handleAuthenticated: async () => {
-        nextCalls++;
-        return terminalReply;
+      steps: {
+        authenticating: verify(() => authCalls++),
+        verified: async (conversation, turn) => {
+          if (turn.handedOff)
+            return { conversation, messages: [], next: "reply" };
+          nextCalls++;
+          return {
+            conversation: {
+              ...conversationBase(conversation),
+              phase: "ended",
+              outcome,
+            },
+            messages: terminal,
+            next: "reply",
+          };
+        },
       },
     });
     await handleTurn("one", "identity details");
-    assert.deepEqual(await handleTurn("one", "refill request"), terminalReply);
-    assert.deepEqual(await handleTurn("one", "repeat"), terminalReply);
+    const expected = { messages: terminal, state: outcome };
+    assert.deepEqual(await handleTurn("one", "refill request"), expected);
+    assert.deepEqual(await handleTurn("one", "repeat"), expected);
     assert.equal(authCalls, 1);
     assert.equal(nextCalls, 1);
   }
@@ -117,28 +232,31 @@ test("serializes routing across the transition from authentication to the next w
     release = resolve;
   });
   const handleTurn = createConversationHandler({
-    authenticate: async (conversation) => {
-      calls.push("authenticate");
-      await gate;
-      conversation.patient = patient;
-      return {
-        messages: [{ from: "agent", text: "Verified." }],
-        state: "in_progress",
-      };
-    },
-    handleAuthenticated: async () => {
-      calls.push("next-workflow");
-      return {
-        messages: [{ from: "agent", text: "Continuing." }],
-        state: "in_progress",
-      };
+    steps: {
+      authenticating: async (conversation, turn) => {
+        calls.push("authenticate");
+        await gate;
+        return verify()(conversation, turn);
+      },
+      verified: async (conversation, turn) => {
+        calls.push(`next-workflow:${turn.handedOff}`);
+        return {
+          conversation,
+          messages: [agent("Continuing.")],
+          next: "reply",
+        };
+      },
     },
   });
   const first = handleTurn("one", "identity details");
   const second = handleTurn("one", "refill request");
   release();
   await Promise.all([first, second]);
-  assert.deepEqual(calls, ["authenticate", "next-workflow"]);
+  assert.deepEqual(calls, [
+    "authenticate",
+    "next-workflow:true",
+    "next-workflow:false",
+  ]);
 });
 
 test("expires conversations at 24 hours from creation despite recent activity", async () => {
@@ -146,14 +264,7 @@ test("expires conversations at 24 hours from creation despite recent activity", 
   let authentications = 0;
   const handleTurn = createConversationHandler({
     now: () => clock,
-    authenticate: async (conversation) => {
-      authentications++;
-      conversation.patient = patient;
-      return {
-        messages: [{ from: "agent", text: "Verified." }],
-        state: "in_progress",
-      };
-    },
+    steps: { authenticating: verify(() => authentications++) },
   });
   await handleTurn("one", "identity details");
   clock = 24 * 60 * 60 * 1_000 - 1;
@@ -169,14 +280,7 @@ test("at capacity evicts the least recently used idle conversation", async () =>
   let authentications = 0;
   const handleTurn = createConversationHandler({
     now: () => clock,
-    authenticate: async (conversation) => {
-      authentications++;
-      conversation.patient = patient;
-      return {
-        messages: [{ from: "agent", text: "Verified." }],
-        state: "in_progress",
-      };
-    },
+    steps: { authenticating: verify(() => authentications++) },
   });
   for (let index = 0; index < 100; index++) {
     clock++;
@@ -201,14 +305,12 @@ test("does not evict in-flight state when all 100 conversations are busy", async
   });
   let authentications = 0;
   const handleTurn = createConversationHandler({
-    authenticate: async (conversation) => {
-      authentications++;
-      await gate;
-      conversation.patient = patient;
-      return {
-        messages: [{ from: "agent", text: "Verified." }],
-        state: "in_progress",
-      };
+    steps: {
+      authenticating: async (conversation, turn) => {
+        authentications++;
+        await gate;
+        return verify()(conversation, turn);
+      },
     },
   });
   const active = Array.from({ length: 100 }, (_, index) =>

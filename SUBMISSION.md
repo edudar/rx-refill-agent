@@ -82,7 +82,9 @@ and whether to request corrections, retry, or escalate. The response-generation
 brief contains field names and these decisions, not retrieved patient data. The
 model receives the last 12 conversation messages to acknowledge context, handle
 reluctance or questions, and avoid repeating itself. It can acknowledge an already
-named prescription rather than asking for it again.
+named prescription rather than asking for it again. The model never states that
+identity was verified; on a unique match the application sends a fixed
+confirmation, which saves one model call on the verifying turn.
 
 `response-generator.ts` returns only text. Workflow state and tool access remain
 under application control. Malformed, refused, incomplete, or failed generation
@@ -123,7 +125,33 @@ This is the assessment's demographic matching flow;
 it does not implement OTP or proof of possession. Conversation IDs are assumed
 to be supplied by a trusted chat front end.
 
-Authentication leaves the conversation `in_progress`. Medication selection,
+## Conversation phases
+
+Conversation state is a discriminated union by `phase` (`agent/domain/conversation.ts`):
+`authenticating` holds identity factors and match attempts; `verified` holds only
+the matched patient record; `ended` records `complete` or `escalated`. Illegal
+combinations, such as a patient record alongside unverified factors, cannot be
+represented, and identity factors are dropped once verification succeeds. The reply
+`state` is derived from the phase, so a step cannot report a state that disagrees
+with it.
+
+Each phase has one step. A step returns the next conversation, its messages, and
+either `reply` or `continue`. `continue` hands the same patient message to the next
+phase, so the verifying turn can go straight on to the refill (the starter script
+verifies on its second message and confirms the pharmacy on its third). A hand-off
+must change phase, a turn is capped at four steps, and the next step receives
+`handedOff: true` so it never reads the identity message as an answer to its own
+question. Messages from all steps in a turn are returned together.
+
+Steps work on a cloned draft. The store commits the draft only when the turn
+succeeds, so a turn that throws leaves no partial updates or dangling history.
+
+The extractor also returns `medicationMention`: the medication the patient asked
+for, as written. It is kept as `pendingIntent` (latest mention wins, at most 100
+characters) and carried into the `verified` phase. It is never sent to the EHR or
+matched against records before verification, and out-of-scope messages cannot set it.
+
+Verification leaves the conversation `in_progress`. Medication selection,
 clinical rules, pharmacy confirmation, and refill submission remain unimplemented,
 so the full-refill happy-path scenario is not expected to pass yet. Unit tests use
 simulated model/EHR responses and cover partial details, corrections, invalid

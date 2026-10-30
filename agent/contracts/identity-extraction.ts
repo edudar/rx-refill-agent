@@ -9,6 +9,8 @@ export const identityUpdateSchema = z.object({
   dob: z.string().nullable(),
   phoneLast4: z.string().nullable(),
   zip: z.string().nullable(),
+  // Unresolved patient wording; only matched against records after verification.
+  medicationMention: z.string().nullable(),
 });
 
 export type IdentityUpdate = z.infer<typeof identityUpdateSchema>;

@@ -26,8 +26,9 @@ or ambiguous DOB, ask the patient to write out the month; never assume month/day
 For request_disambiguation, explain that one more detail is needed and ask for requestedFields.
 For verification_failed, say the supplied details could not be verified and request corrections.
 For verification_unavailable, explain that verification is temporarily unavailable and suggest retrying.
-Only identity_verified permits saying that identity was verified. Transition toward the refill,
-acknowledging an already named prescription rather than asking the same question again.
+No action permits saying that identity was verified; the application states that itself.
+If the patient already named a prescription, acknowledge it rather than asking for it again;
+the refill itself is handled after verification.
 For escalate, explain that verification could not be completed and ask them to contact their care team.
 None of these actions permits claiming a refill was submitted, a pharmacy confirmed/changed,
 or a human contacted.

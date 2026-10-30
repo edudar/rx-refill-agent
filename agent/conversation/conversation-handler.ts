@@ -1,22 +1,42 @@
 import { randomUUID } from "node:crypto";
 import type {
+  AgentMessage,
   AgentReply,
   ConversationMessage,
   ConversationStep,
+  StepResult,
   TurnHandler,
+  TurnInput,
 } from "../contracts/conversation.js";
 import type {
   ConversationLogEvent,
   ConversationLogger,
 } from "../contracts/logging.js";
-import type { Conversation } from "../domain/conversation.js";
+import {
+  replyState,
+  type AuthenticatingConversation,
+  type Conversation,
+  type VerifiedConversation,
+} from "../domain/conversation.js";
 import { createConversationStore } from "./conversation-store.js";
 
+// Each hand-off must change phase, so this only bounds a misbehaving step.
+const MAX_STEPS_PER_TURN = 4;
+
+export interface ConversationSteps {
+  authenticating: ConversationStep<AuthenticatingConversation>;
+  verified?: ConversationStep<VerifiedConversation>;
+}
+
 interface ConversationHandlerOptions {
-  authenticate: ConversationStep;
-  handleAuthenticated?: ConversationStep;
+  steps: ConversationSteps;
   logger?: ConversationLogger;
   now?: () => number;
+}
+
+interface TurnOutcome {
+  conversation: Conversation;
+  reply: AgentReply;
 }
 
 export function createConversationHandler(
@@ -26,50 +46,88 @@ export function createConversationHandler(
   const store = createConversationStore((id) => pending.has(id));
   const now = options.now ?? Date.now;
   const handleTurn: TurnHandler = async (id, text) => {
-    const conversation = store.get(id, now());
-    appendHistory(conversation, [{ from: "patient", text }]);
-    const reply = await routeTurn(conversation, text, options);
+    // Steps work on a draft; a turn that throws leaves the stored state untouched.
+    const draft = structuredClone(store.get(id, now()));
+    appendHistory(draft, [{ from: "patient", text }]);
+    const { conversation, reply } = await runTurn(draft, text, options.steps);
     recordReply(conversation, reply);
+    store.set(id, conversation);
     return reply;
   };
   const loggedTurn = withConversationLogging(handleTurn, options.logger, now);
   return (id, text) => serializeTurn(pending, id, () => loggedTurn(id, text));
 }
 
-function routeTurn(
-  conversation: Conversation,
+async function runTurn(
+  initial: Conversation,
   text: string,
-  options: ConversationHandlerOptions,
-): Promise<AgentReply> | AgentReply {
-  if (conversation.state !== "in_progress")
-    return endedConversationReply(conversation);
-  if (!conversation.patient) return options.authenticate(conversation, text);
-  if (options.handleAuthenticated)
-    return options.handleAuthenticated(conversation, text);
-  // Replace this response with the refill workflow when it is implemented.
-  return {
-    messages: [
-      {
-        from: "agent",
-        text: "Your identity is verified. Prescription selection and refill processing are not available yet.",
-      },
-    ],
-    state: "in_progress",
-  };
+  steps: ConversationSteps,
+): Promise<TurnOutcome> {
+  if (initial.phase === "ended") return endedConversation(initial);
+  let current = initial;
+  const messages: AgentMessage[] = [];
+  for (let hop = 0; hop < MAX_STEPS_PER_TURN; hop++) {
+    const {
+      conversation,
+      messages: stepMessages,
+      next,
+    } = await runStep(current, { text, handedOff: hop > 0 }, steps);
+    messages.push(...stepMessages);
+    if (next === "continue" && conversation.phase === current.phase)
+      throw new Error(`Step ${current.phase} continued without a transition`);
+    if (next === "reply" || conversation.phase === "ended") {
+      if (!messages.length)
+        throw new Error(`Step ${current.phase} produced no reply`);
+      return {
+        conversation,
+        reply: { messages, state: replyState(conversation) },
+      };
+    }
+    current = conversation;
+  }
+  throw new Error("Conversation exceeded its steps for one turn");
 }
 
-function endedConversationReply(conversation: Conversation): AgentReply {
-  return (
-    conversation.lastReply ?? {
+function runStep(
+  conversation: Exclude<Conversation, { phase: "ended" }>,
+  turn: TurnInput,
+  steps: ConversationSteps,
+): Promise<StepResult> {
+  switch (conversation.phase) {
+    case "authenticating":
+      return steps.authenticating(conversation, turn);
+    case "verified":
+      return (steps.verified ?? refillUnavailable)(conversation, turn);
+  }
+}
+
+// Replace this step with the refill workflow when it is implemented.
+const refillUnavailable: ConversationStep<VerifiedConversation> = async (
+  conversation,
+) => ({
+  conversation,
+  messages: [
+    {
+      from: "agent",
+      text: "Prescription selection and refill processing are not available yet.",
+    },
+  ],
+  next: "reply",
+});
+
+function endedConversation(conversation: Conversation): TurnOutcome {
+  return {
+    conversation,
+    reply: conversation.lastReply ?? {
       messages: [
         {
           from: "agent",
           text: "This conversation has ended. Please start a new conversation for further help.",
         },
       ],
-      state: conversation.state,
-    }
-  );
+      state: replyState(conversation),
+    },
+  };
 }
 
 function appendHistory(
@@ -80,7 +138,6 @@ function appendHistory(
 }
 
 function recordReply(conversation: Conversation, reply: AgentReply) {
-  conversation.state = reply.state;
   conversation.lastReply = reply;
   conversation.lastPrompt = reply.messages.at(-1)?.text ?? "";
   appendHistory(conversation, reply.messages);

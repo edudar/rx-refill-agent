@@ -32,7 +32,23 @@ export type AgentMessage = z.infer<typeof agentMessageSchema>;
 export type AgentReplyState = z.infer<typeof agentReplyStateSchema>;
 export type AgentReply = z.infer<typeof agentReplySchema>;
 export type TurnHandler = (id: string, text: string) => Promise<AgentReply>;
-export type ConversationStep = (
-  conversation: Conversation,
-  text: string,
-) => Promise<AgentReply>;
+
+export interface TurnInput {
+  text: string;
+  // True when an earlier step in this turn handed off. The message answered that
+  // step's question, so it must not be read as an answer to this step's prompts.
+  handedOff: boolean;
+}
+
+// The reply state is derived from the resulting phase, so a step cannot report a
+// state that disagrees with it. "continue" hands the same turn to the next phase.
+export interface StepResult {
+  conversation: Conversation;
+  messages: AgentMessage[];
+  next: "reply" | "continue";
+}
+
+export type ConversationStep<C extends Conversation = Conversation> = (
+  conversation: C,
+  turn: TurnInput,
+) => Promise<StepResult>;

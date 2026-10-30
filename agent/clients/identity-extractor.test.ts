@@ -12,6 +12,7 @@ const update = {
   dob: "1988-03-12",
   phoneLast4: "1234",
   zip: null,
+  medicationMention: "lisinopril",
 };
 function modelResponse(
   content: unknown,

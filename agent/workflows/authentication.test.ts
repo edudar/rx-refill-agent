@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createAuthenticationFlow } from "./authentication.js";
-import { createConversationHandler } from "../conversation/conversation-handler.js";
+import {
+  createConversationHandler,
+  type ConversationSteps,
+} from "../conversation/conversation-handler.js";
 
 import type {
   ResponseGenerator,
@@ -19,18 +22,22 @@ function createFlow(
     "generateResponse"
   > & {
     generateResponse?: ResponseGenerator;
+    verified?: ConversationSteps["verified"];
     now?: () => number;
   },
 ) {
   return createConversationHandler({
-    authenticate: createAuthenticationFlow({
-      ...options,
-      generateResponse:
-        options.generateResponse ??
-        (async () => {
-          throw new Error("Simulated renderer outage");
-        }),
-    }),
+    steps: {
+      authenticating: createAuthenticationFlow({
+        ...options,
+        generateResponse:
+          options.generateResponse ??
+          (async () => {
+            throw new Error("Simulated renderer outage");
+          }),
+      }),
+      verified: options.verified,
+    },
     now: options.now,
   });
 }
@@ -43,6 +50,7 @@ const empty: IdentityUpdate = {
   dob: null,
   phoneLast4: null,
   zip: null,
+  medicationMention: null,
 };
 const identity = {
   firstName: "Alice",
@@ -61,12 +69,14 @@ function fixture(
   updates: Record<string, Partial<IdentityUpdate>>,
   overrides: Partial<EhrClient> = {},
   generateResponse?: ResponseGenerator,
+  verified?: ConversationSteps["verified"],
 ) {
   const matches: unknown[] = [];
   const reads: string[] = [];
   const extractions: ExtractionInput[] = [];
   const flow = createFlow({
     generateResponse,
+    verified,
     extractIdentity: async (input) => {
       extractions.push(input);
       return { ...empty, ...updates[input.text] };
@@ -133,12 +143,7 @@ test("passes validated decisions and recent dialogue to the generator without pr
     {},
     async (input) => {
       inputs.push(input);
-      return {
-        text:
-          input.decision.action === "identity_verified"
-            ? "You're verified. Let's discuss the prescription."
-            : "Thanks for sharing that. Which ZIP is on your record?",
-      };
+      return { text: "Thanks for sharing that. Which ZIP is on your record?" };
     },
   );
   const partial = await f.flow("one", "details");
@@ -165,8 +170,10 @@ test("passes validated decisions and recent dialogue to the generator without pr
     { from: "patient", text: "Yes, keep my pharmacy." },
   ]);
   assert.equal(f.matches.length, 0);
-  await f.flow("one", "zip");
-  assert.equal(inputs[2].decision.action, "identity_verified");
+  const verified = await f.flow("one", "zip");
+  // The application, not the model, states that verification succeeded.
+  assert.equal(inputs.length, 2);
+  assert.equal(verified.messages[0].text, "Thanks, your identity is verified.");
   assert.deepEqual(f.reads, ["p-1"]);
   assert.doesNotMatch(JSON.stringify(inputs), /415-555|p-1/);
 });
@@ -508,4 +515,68 @@ test("malformed model output fails closed without EHR access", async () => {
     (await flow("one", "hello")).messages[0].text,
     /trouble verifying/,
   );
+});
+
+test("a refill named before verification reaches the refill phase in the verifying turn", async () => {
+  const handoffs: { intent: unknown; text: string; handedOff: boolean }[] = [];
+  const f = fixture(
+    {
+      opening: { medicationMention: " Lisinopril 10mg " },
+      changed: { medicationMention: "Metformin" },
+      all: identity,
+    },
+    {},
+    undefined,
+    async (conversation, turn) => {
+      handoffs.push({
+        intent: conversation.pendingIntent,
+        text: turn.text,
+        handedOff: turn.handedOff,
+      });
+      return {
+        conversation,
+        messages: [{ from: "agent", text: "Keep Mission Rx?" }],
+        next: "reply",
+      };
+    },
+  );
+  await f.flow("one", "opening");
+  assert.equal(f.matches.length, 0, "intent alone must not touch the EHR");
+  await f.flow("one", "changed");
+  const reply = await f.flow("one", "all");
+  assert.deepEqual(
+    reply.messages.map((message) => message.text),
+    ["Thanks, your identity is verified.", "Keep Mission Rx?"],
+  );
+  assert.equal(reply.state, "in_progress");
+  assert.deepEqual(handoffs, [
+    {
+      intent: { medicationMention: "Metformin" },
+      text: "all",
+      handedOff: true,
+    },
+  ]);
+});
+
+test("out-of-scope messages cannot record a refill intent", async () => {
+  let intent: unknown = "unset";
+  const f = fixture(
+    {
+      unrelated: { outOfScope: true, medicationMention: "oxycodone" },
+      all: identity,
+    },
+    {},
+    undefined,
+    async (conversation) => {
+      intent = conversation.pendingIntent;
+      return {
+        conversation,
+        messages: [{ from: "agent", text: "Which prescription?" }],
+        next: "reply",
+      };
+    },
+  );
+  await f.flow("one", "unrelated");
+  await f.flow("one", "all");
+  assert.equal(intent, undefined);
 });

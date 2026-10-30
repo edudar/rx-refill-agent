@@ -1,6 +1,6 @@
 import type {
-  AgentReply,
   ConversationStep,
+  StepResult,
 } from "../contracts/conversation.js";
 import type { EhrClient, PatientRecord } from "../contracts/ehr.js";
 import {
@@ -19,14 +19,18 @@ import {
   type CompleteIdentity,
   type IdentityField,
 } from "../domain/identity.js";
-import type { Conversation } from "../domain/conversation.js";
+import {
+  conversationBase,
+  type AuthenticatingConversation,
+} from "../domain/conversation.js";
 import { normalizeDateOfBirth } from "../utils/date-of-birth.js";
 import { responseFallback } from "./response-fallback.js";
 
 const required = ["firstName", "lastName", "dob", "zip"] as const;
+const verifiedMessage = "Thanks, your identity is verified.";
 
 interface AuthenticationTurn {
-  conversation: Conversation;
+  conversation: AuthenticatingConversation;
   received: IdentityField[];
   invalid: IdentityField[];
 }
@@ -35,8 +39,8 @@ export function createAuthenticationFlow(options: {
   extractIdentity: IdentityExtractor;
   generateResponse: ResponseGenerator;
   ehr: EhrClient;
-}): ConversationStep {
-  return async (conversation, text) => {
+}): ConversationStep<AuthenticatingConversation> {
+  return async (conversation, { text }) => {
     const turn: AuthenticationTurn = {
       conversation,
       received: [],
@@ -51,12 +55,19 @@ export function createAuthenticationFlow(options: {
         }),
       );
       if (update.outOfScope) return redirectToRefill(turn);
+      recordRefillIntent(conversation, update);
       applyIdentityUpdate(turn, update);
       const needed = neededIdentityFields(turn);
-      const decision = needed.length
-        ? requestIdentityFields(turn, needed)
+      const verification = needed.length
+        ? { decision: requestIdentityFields(turn, needed) }
         : await verifyIdentity(turn, options.ehr);
-      return respondToDecision(turn, decision, options.generateResponse);
+      return "patient" in verification
+        ? identityVerified(conversation, verification.patient)
+        : respondToDecision(
+            turn,
+            verification.decision,
+            options.generateResponse,
+          );
     } catch {
       return respondToDecision(
         turn,
@@ -87,7 +98,7 @@ async function respondToDecision(
   { conversation }: AuthenticationTurn,
   decision: AuthenticationDecision,
   generateResponse: ResponseGenerator,
-): Promise<AgentReply> {
+): Promise<StepResult> {
   let text: string;
   try {
     const generated = await generateResponse({
@@ -99,26 +110,61 @@ async function respondToDecision(
     text = responseFallback(decision);
   }
   return {
+    conversation:
+      decision.action === "escalate"
+        ? {
+            ...conversationBase(conversation),
+            phase: "ended",
+            outcome: "escalated",
+          }
+        : conversation,
     messages: [{ from: "agent", text }],
-    state: decision.action === "escalate" ? "escalated" : "in_progress",
+    next: "reply",
   };
 }
 
-function redirectToRefill(turn: AuthenticationTurn): AgentReply {
+// Verification is stated by application code, never by the response model.
+// The next phase continues this turn, using any refill already requested.
+function identityVerified(
+  conversation: AuthenticatingConversation,
+  patient: PatientRecord,
+): StepResult {
+  return {
+    conversation: {
+      ...conversationBase(conversation),
+      phase: "verified",
+      patient,
+    },
+    messages: [{ from: "agent", text: verifiedMessage }],
+    next: "continue",
+  };
+}
+
+function redirectToRefill(turn: AuthenticationTurn): StepResult {
   const missing = missingIdentityFields(turn.conversation);
   const followUp = missing.length
     ? responseFallback(decisionFor(turn, "request_identity", missing))
     : "Let me know when you'd like to continue verifying your identity.";
   // Hard scope redirects never invoke generation or accept identity updates.
   return {
+    conversation: turn.conversation,
     messages: [
       {
         from: "agent",
         text: `I can help with prescription refills and pharmacy changes. ${followUp}`,
       },
     ],
-    state: "in_progress",
+    next: "reply",
   };
+}
+
+function recordRefillIntent(
+  conversation: AuthenticatingConversation,
+  update: IdentityUpdate,
+) {
+  const mention = update.medicationMention?.trim().slice(0, 100);
+  // The latest request wins, so a patient can change their mind before verifying.
+  if (mention) conversation.pendingIntent = { medicationMention: mention };
 }
 
 function applyIdentityUpdate(turn: AuthenticationTurn, update: IdentityUpdate) {
@@ -139,7 +185,9 @@ function applyIdentityUpdate(turn: AuthenticationTurn, update: IdentityUpdate) {
   }
 }
 
-function missingIdentityFields(conversation: Conversation): IdentityField[] {
+function missingIdentityFields(
+  conversation: AuthenticatingConversation,
+): IdentityField[] {
   return required.filter((field) => !conversation.factors[field]);
 }
 
@@ -172,7 +220,7 @@ function requestIdentityFields(
   );
 }
 
-function identityFingerprint(conversation: Conversation) {
+function identityFingerprint(conversation: AuthenticatingConversation) {
   return JSON.stringify(
     [...required, "phoneLast4" as const].map(
       (field) => conversation.factors[field] ?? null,
@@ -214,21 +262,26 @@ function recordFailedMatch(
   return decisionFor(turn, "verification_failed", [...required]);
 }
 
-async function verifyIdentity(turn: AuthenticationTurn, ehr: EhrClient) {
+type Verification =
+  { patient: PatientRecord } | { decision: AuthenticationDecision };
+
+async function verifyIdentity(
+  turn: AuthenticationTurn,
+  ehr: EhrClient,
+): Promise<Verification> {
   const { conversation } = turn;
   const factors = completeIdentitySchema.parse(conversation.factors);
   const fingerprint = identityFingerprint(conversation);
   if (fingerprint === conversation.lastFailedFactors)
-    return repeatFailedVerification(turn, factors);
+    return { decision: repeatFailedVerification(turn, factors) };
   delete conversation.identityPrompt;
   const match = await ehr.match(factors);
   if (match.count !== 1 || !match.patientId)
-    return recordFailedMatch(turn, match.count, fingerprint);
+    return { decision: recordFailedMatch(turn, match.count, fingerprint) };
   const patient = await ehr.getPatient(match.patientId);
   if (!matchesFactors(patient, factors))
     throw new Error("Patient record does not match supplied identity");
-  conversation.patient = patient;
-  return decisionFor(turn, "identity_verified");
+  return { patient };
 }
 
 function matchesFactors(patient: PatientRecord, factors: CompleteIdentity) {

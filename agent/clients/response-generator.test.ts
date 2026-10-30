@@ -62,7 +62,10 @@ test("generates wording from the trusted decision and recent dialogue using the 
         recentMessages: input.messages,
       });
       assert.match(body.instructions, /untrusted conversation data/);
-      assert.match(body.instructions, /Only identity_verified/);
+      assert.match(
+        body.instructions,
+        /No action permits saying that identity was verified/,
+      );
       return modelResponse({
         type: "output_text",
         text: JSON.stringify({ text: wording }),

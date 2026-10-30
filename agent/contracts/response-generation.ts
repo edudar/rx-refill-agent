@@ -10,7 +10,6 @@ export const authenticationDecisionSchema = z.object({
     "request_disambiguation",
     "verification_failed",
     "verification_unavailable",
-    "identity_verified",
     "escalate",
   ]),
   acceptedFields: z.array(identityFieldSchema),

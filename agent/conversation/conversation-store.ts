@@ -1,4 +1,7 @@
-import type { Conversation } from "../domain/conversation.js";
+import type {
+  AuthenticatingConversation,
+  Conversation,
+} from "../domain/conversation.js";
 
 const MAX_CONVERSATION_AGE_MS = 24 * 60 * 60 * 1_000;
 const MAX_CONVERSATIONS = 100;
@@ -20,16 +23,20 @@ export function createConversationStore(isPending: IsPending) {
       conversation.touchedAt = timestamp;
       return conversation;
     },
+    // Commits a turn's result; the serialized, in-flight ID is never evicted meanwhile.
+    set(id: string, conversation: Conversation) {
+      conversations.set(id, conversation);
+    },
   };
 }
 
-function newConversation(timestamp: number): Conversation {
+function newConversation(timestamp: number): AuthenticatingConversation {
   return {
+    phase: "authenticating",
     factors: {},
     history: [],
     lastPrompt: "",
     failedMatches: 0,
-    state: "in_progress",
     createdAt: timestamp,
     touchedAt: timestamp,
   };

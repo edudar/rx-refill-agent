@@ -17,11 +17,13 @@ const handleTurn = createConversationHandler({
   logger: config.conversationLogging
     ? createConsoleConversationLogger()
     : undefined,
-  authenticate: createAuthenticationFlow({
-    extractIdentity: createIdentityExtractor(model),
-    generateResponse: createResponseGenerator(model),
-    ehr: createEhrClient(config.ehr),
-  }),
+  steps: {
+    authenticating: createAuthenticationFlow({
+      extractIdentity: createIdentityExtractor(model),
+      generateResponse: createResponseGenerator(model),
+      ehr: createEhrClient(config.ehr),
+    }),
+  },
 });
 
 createAgentServer(handleTurn).listen(config.port, () => {

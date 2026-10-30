@@ -19,9 +19,11 @@ test("logs patient text and every agent reply with correlated IDs and timing", a
   const handleTurn = createConversationHandler({
     logger: createConsoleConversationLogger((line) => lines.push(line)),
     now: () => clock,
-    authenticate: async () => {
-      clock += 25;
-      return reply;
+    steps: {
+      authenticating: async (conversation) => {
+        clock += 25;
+        return { conversation, messages: reply.messages, next: "reply" };
+      },
     },
   });
   const text = "I need my rx\n\u001b[31mplease";
@@ -48,8 +50,10 @@ test("logs failed turns without leaking exception details or swallowing the erro
   const failure = new Error("private upstream response");
   const handleTurn = createConversationHandler({
     logger: (event) => events.push(event),
-    authenticate: async () => {
-      throw failure;
+    steps: {
+      authenticating: async () => {
+        throw failure;
+      },
     },
   });
   await assert.rejects(
@@ -69,7 +73,13 @@ test("a failing logger does not prevent the workflow from returning its reply", 
     logger: () => {
       throw new Error("logging unavailable");
     },
-    authenticate: async () => reply,
+    steps: {
+      authenticating: async (conversation) => ({
+        conversation,
+        messages: reply.messages,
+        next: "reply",
+      }),
+    },
   });
   assert.deepEqual(await handleTurn("one", "hello"), reply);
 });
