@@ -14,7 +14,7 @@ export interface Medication {
   readonly schedule: Schedule;
   readonly lastFilledDate: string; // ISO date
   readonly daysSupply: number;
-  refillsRemaining: number; // consumed by successful submission; restored by reset
+  readonly refillsRemaining: number;
   readonly rxExpirationDate: string; // ISO date
   readonly requiresRecentLab: RequiresRecentLab | null;
 }

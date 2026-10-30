@@ -2,7 +2,6 @@ import type { Patient } from "./types.js";
 import type { MockRequest, MockResponse } from "./http.js";
 import type { MockState } from "./state.js";
 import { submitRefill } from "./state.js";
-import { refillRejection } from "./refill-rules.js";
 
 export function handleEhrRequest(
   request: MockRequest,
@@ -129,12 +128,10 @@ function handlePatientRefill(
 ): MockResponse {
   if (body === null || !body.medId)
     return { status: 400, body: { error: "medId required" } };
-  const medication = patient.medications.find(
-    (medication) => medication.medId === body.medId,
-  );
-  if (!medication)
+  if (
+    !patient.medications.some((medication) => medication.medId === body.medId)
+  )
     return { status: 404, body: { error: "medication not found" } };
-  const error = refillRejection(medication, patient.labs, state.now);
-  if (error) return { status: 409, body: { error } };
-  return { status: 200, body: submitRefill(state, medication) };
+  // Like the starter mock, the EHR does not enforce clinical rules (docs/API.md §4).
+  return { status: 200, body: submitRefill(state) };
 }

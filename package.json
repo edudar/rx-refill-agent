@@ -9,8 +9,10 @@
   },
   "scripts": {
     "mock": "tsx mock/app.ts",
+    "mock:conformance": "DATASET_PATH=conformance/dataset.json tsx mock/app.ts",
     "agent": "tsx agent/app.ts",
     "conformance": "tsx conformance/run.ts",
+    "conformance:starter": "tsx conformance/starter/run.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --import ./scripts/test-environment.mjs --import tsx --test agent/*.test.ts agent/*/*.test.ts conformance/*.test.ts mock/*.test.ts scripts/*.test.mjs",
     "test:mutation": "stryker run",

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { expectedMockFixture } from "./fixtures.js";
 import { runConformanceSuite } from "./suite.js";
 import type { RecordedCall, ScenarioResult } from "./contracts.js";
 
-test("isolates scenarios, assigns fresh IDs, and reports failures without stopping the suite", async () => {
+test("isolates scenarios, assigns fresh IDs, skips unsupported scenarios, and reports failures without stopping the suite", async () => {
   const sequence: string[] = [];
   const reports: ScenarioResult[] = [];
   let recorded: RecordedCall[] = [];
@@ -14,7 +15,12 @@ test("isolates scenarios, assigns fresh IDs, and reports failures without stoppi
     fetch: async (url) => {
       const path = new URL(String(url)).pathname;
       if (path === "/healthz") return Response.json({ ok: true });
-      if (path === "/__reset") {
+      if (path === "/__harness")
+        return Response.json({
+          ...expectedMockFixture,
+          capabilities: ["restore", "call-outcomes"],
+        });
+      if (path === "/__harness/restore") {
         sequence.push("reset");
         recorded = [];
         return Response.json({ ok: true });
@@ -43,6 +49,14 @@ test("isolates scenarios, assigns fresh IDs, and reports failures without stoppi
         },
       },
       {
+        name: "unavailable",
+        description: "Needs a capability the mock lacks",
+        requires: ["restore", "faults"],
+        async run() {
+          sequence.push("unavailable ran");
+        },
+      },
+      {
         name: "second",
         description: "Subsequent scenario",
         async run(context) {
@@ -57,9 +71,15 @@ test("isolates scenarios, assigns fresh IDs, and reports failures without stoppi
     "expected assertion failure",
     "expected scenario exception",
   ]);
-  assert.deepEqual(results[1].failures, []);
+  assert.deepEqual(results[1], {
+    ...results[1],
+    failures: [],
+    skipped: "mock lacks faults",
+  });
+  assert.deepEqual(results[2].failures, []);
+  assert.equal(results[2].skipped, undefined);
   assert.deepEqual(reports, results);
-  assert.notEqual(results[0].conversationId, results[1].conversationId);
+  assert.notEqual(results[0].conversationId, results[2].conversationId);
   for (const result of results)
     assert.match(result.conversationId, /^[a-z]+-[0-9a-f-]{36}$/);
 });

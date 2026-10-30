@@ -55,163 +55,98 @@ function createMockClient(base: string) {
   return { request, refill };
 }
 
-test("reset restores pharmacies, refill counts, IDs, and call-log state without modifying fixtures", async (t) => {
+test("refills are accepted like the starter mock: no clinical enforcement or refill consumption", async (t) => {
   const dataset = fixture();
   const original = structuredClone(dataset);
   const { request, refill } = await startMock(t, dataset);
+  const restricted = [
+    ["pat_002", "m_cii"],
+    ["pat_003", "m_exp"],
+    ["pat_004", "m_early"],
+    ["pat_006", "m_warf_stale"],
+  ];
+  for (const [index, [patientId, medId]] of restricted.entries()) {
+    assert.deepEqual(await refill(patientId, medId), {
+      status: 200,
+      body: { refillId: `rf_${index + 1}`, status: "submitted" },
+    });
+  }
+  for (const patient of original.patients)
+    assert.deepEqual(
+      (await request(`/ehr/patients/${patient.patientId}/medications`)).body,
+      patient.medications,
+    );
+  assert.deepEqual(dataset, original);
+  assert.deepEqual(await refill("pat_001", "m_ctrl_ok"), {
+    status: 404,
+    body: { error: "medication not found" },
+  });
+  assert.equal((await refill("unknown", "m_happy")).status, 404);
+  assert.equal(
+    (await request("/ehr/patients/pat_001/refills", "POST", {})).status,
+    400,
+  );
+});
+
+test("POST /__reset keeps starter semantics: it clears calls but not patient state", async (t) => {
+  const { request, refill } = await startMock(t);
   await request("/ehr/patients/pat_001/pharmacy", "PUT", {
     pharmacyId: "ph_001",
   });
-  assert.deepEqual((await request("/ehr/patients/pat_001/pharmacy")).body, {
-    pharmacyId: "ph_001",
-    name: "Bay Pharmacy",
-  });
-  assert.deepEqual(await refill("pat_001", "m_happy"), {
-    status: 200,
-    body: { refillId: "rf_1", status: "submitted" },
-  });
-  const medications = (await request("/ehr/patients/pat_001/medications")).body;
-  assert.equal(medications[0].refillsRemaining, 2);
-  assert.equal(medications[0].lastFilledDate, "2026-08-12");
-  assert.deepEqual(dataset, original);
-
+  await refill("pat_001", "m_happy");
   assert.deepEqual(await request("/__reset", "POST"), {
     status: 200,
     body: { ok: true },
   });
   assert.deepEqual((await request("/__calls")).body, []);
   assert.deepEqual((await request("/ehr/patients/pat_001/pharmacy")).body, {
+    pharmacyId: "ph_001",
+    name: "Bay Pharmacy",
+  });
+  assert.equal((await request("/__calls")).body[0].seq, 1);
+  assert.equal((await refill("pat_001", "m_happy")).body.refillId, "rf_2");
+});
+
+test("harness restore returns pharmacies, refill IDs, faults, and calls to startup state", async (t) => {
+  const dataset = fixture();
+  const original = structuredClone(dataset);
+  const { request, refill } = await startMock(t, dataset);
+  await request("/ehr/patients/pat_001/pharmacy", "PUT", {
+    pharmacyId: "ph_001",
+  });
+  await refill("pat_001", "m_happy");
+  await request("/__harness/faults", "POST", {
+    method: "GET",
+    path: "/ehr/time",
+    times: 5,
+  });
+  assert.deepEqual(await request("/__harness/restore", "POST"), {
+    status: 200,
+    body: { ok: true },
+  });
+  assert.deepEqual((await request("/__calls")).body, []);
+  assert.equal((await request("/ehr/time")).status, 200);
+  assert.deepEqual((await request("/ehr/patients/pat_001/pharmacy")).body, {
     pharmacyId: "ph_002",
     name: "Mission Rx",
   });
-  assert.deepEqual(
-    (await request("/ehr/patients/pat_001/medications")).body,
-    original.patients[0].medications,
-  );
-  assert.equal((await request("/__calls")).body[0].seq, 1);
   assert.equal((await refill("pat_001", "m_happy")).body.refillId, "rf_1");
+  assert.deepEqual(dataset, original);
 });
 
-test("mock blocks each clinical restriction and records rejected attempts without consuming refills", async (t) => {
-  const dataset = fixture();
-  const expired = dataset.patients.find(
-    (patient) => patient.patientId === "pat_003",
-  )!;
-  // Isolate expiration from the separate no-refills restriction in the original fixture.
-  expired.medications[0].refillsRemaining = 1;
-  const { request, refill } = await startMock(t, dataset);
-  for (const [patientId, medId, error] of [
-    ["pat_002", "m_cii", "schedule_ii"],
-    ["pat_003", "m_exp", "prescription_expired"],
-    ["pat_004", "m_early", "controlled_refill_too_early"],
-    ["pat_006", "m_warf_stale", "recent_lab_required"],
-  ]) {
-    assert.deepEqual(await refill(patientId, medId), {
-      status: 409,
-      body: { error },
-    });
-    const original = dataset.patients.find(
-      (patient) => patient.patientId === patientId,
-    )!;
-    assert.deepEqual(
-      (await request(`/ehr/patients/${patientId}/medications`)).body,
-      original.medications,
-    );
-  }
-  const recorded = (await request("/__calls")).body;
-  assert.equal(
-    recorded.filter((call: { method: string }) => call.method === "POST")
-      .length,
-    4,
-  );
-});
-
-test("eligible non-controlled, controlled, and lab-dependent refills consume one remaining refill", async (t) => {
-  const dataset = fixture();
-  const { request, refill } = await startMock(t, dataset);
-  for (const [patientId, medId] of [
-    ["pat_001", "m_happy"],
-    ["pat_004", "m_ok"],
-    ["pat_005", "m_ctrl_ok"],
-    ["pat_007", "m_warf_ok"],
-  ]) {
-    assert.equal((await refill(patientId, medId)).status, 200);
-    const original = dataset.patients.find(
-      (patient) => patient.patientId === patientId,
-    )!.medications;
-    const expected = original.map((medication) => ({
-      ...medication,
-      refillsRemaining:
-        medication.refillsRemaining - Number(medication.medId === medId),
-    }));
-    assert.deepEqual(
-      (await request(`/ehr/patients/${patientId}/medications`)).body,
-      expected,
-    );
-  }
-});
-
-test("exhausted refills and unknown medications never produce successful submissions", async (t) => {
-  const { request, refill } = await startMock(t);
-  for (let i = 1; i <= 3; i++) {
-    assert.deepEqual(await refill("pat_001", "m_happy"), {
-      status: 200,
-      body: { refillId: `rf_${i}`, status: "submitted" },
-    });
-  }
-  assert.deepEqual(await refill("pat_001", "m_happy"), {
-    status: 409,
-    body: { error: "no_refills" },
-  });
-  assert.equal(
-    (await request("/ehr/patients/pat_001/medications")).body[0]
-      .refillsRemaining,
-    0,
-  );
-  assert.equal((await refill("pat_001", "m_ctrl_ok")).status, 404);
-  assert.equal((await refill("unknown", "m_happy")).status, 404);
-  assert.equal((await refill("pat_005", "m_ctrl_ok")).body.refillId, "rf_4");
-});
-
-test("controlled window, expiration, and lab cutoffs use inclusive UTC calendar dates and simulated time", async (t) => {
-  const { refill } = await startMock(t, fixture(), "2026-09-25T23:59:59Z");
-  assert.equal((await refill("pat_004", "m_early")).status, 200); // exactly two days before Sept 27
-  const beforeWindow = await startMock(t, fixture(), "2026-09-24T23:59:59Z");
-  assert.equal((await beforeWindow.refill("pat_004", "m_early")).status, 409);
-
-  for (const [now, expected] of [
-    ["2027-02-28T23:59:59Z", 200],
-    ["2027-03-01T00:00:00Z", 409],
-  ] as const) {
-    const mock = await startMock(t, fixture(), now);
-    assert.equal((await mock.refill("pat_001", "m_happy")).status, expected);
-  }
-  for (const [now, expected] of [
-    ["2026-09-21T23:59:59Z", 200], // 30-day-old INR
-    ["2026-09-22T00:00:00Z", 409], // 31-day-old INR
-    ["2026-08-21T00:00:00Z", 409], // future INR
-  ] as const) {
-    const mock = await startMock(t, fixture(), now);
-    assert.equal((await mock.refill("pat_007", "m_warf_ok")).status, expected);
-  }
-});
-
-test("missing or wrong-type labs cannot satisfy a required lab", async (t) => {
-  for (const labs of [
-    [],
-    [{ type: "CBC", value: "normal", takenDate: "2026-08-22" }],
-  ]) {
-    const dataset = fixture();
-    const patient = dataset.patients.find(
-      (patient) => patient.patientId === "pat_007",
-    )!;
-    patient.labs.splice(0, patient.labs.length, ...labs);
-    const { refill } = await startMock(t, dataset);
-    assert.deepEqual(await refill("pat_007", "m_warf_ok"), {
-      status: 409,
-      body: { error: "recent_lab_required" },
-    });
-  }
+test("harness discovery reports capabilities and the served fixture; removed controls are not routed", async (t) => {
+  const { request } = await startMock(t, fixture(), "2026-10-01T00:00:00Z");
+  const harness = await request("/__harness");
+  assert.deepEqual(harness.body.capabilities, [
+    "restore",
+    "faults",
+    "call-outcomes",
+  ]);
+  assert.equal(harness.body.now, "2026-10-01T00:00:00Z");
+  assert.equal(harness.body.patientIds.length, 12);
+  assert.equal((await request("/ehr/time")).body.now, "2026-10-01T00:00:00Z");
+  for (const path of ["/__fixture", "/__faults"])
+    assert.equal((await request(path, "POST", {})).status, 404);
 });
 
 test("mock matching preserves factor rules and only returns an ID for a unique patient", async (t) => {
@@ -261,14 +196,8 @@ test("mock matching preserves factor rules and only returns an ID for a unique p
   });
 });
 
-test("mock service authorization and pharmacy search remain independent of patient matching", async (t) => {
+test("pharmacy search and pharmacy updates validate their inputs", async (t) => {
   const { request } = await startMock(t);
-  assert.equal(
-    (await request("/ehr/time", "GET", undefined, "wrong")).status,
-    401,
-  );
-  assert.equal((await request("/pharmacy/directory?q=bay")).status, 401);
-  assert.deepEqual((await request("/__calls")).body, []);
   const directory = await request(
     "/pharmacy/directory?q=MARKET",
     "GET",
@@ -324,4 +253,82 @@ test("mock lab filtering and unknown routes preserve their HTTP responses", asyn
   ]) {
     assert.equal((await request(path)).status, 404);
   }
+});
+
+test("unauthorized requests are rejected before recording, like the starter mock", async (t) => {
+  const { request } = await startMock(t);
+  assert.equal(
+    (await request("/ehr/time", "GET", undefined, "wrong")).status,
+    401,
+  );
+  assert.equal((await request("/pharmacy/directory?q=bay")).status, 401);
+  assert.deepEqual((await request("/__calls")).body, []);
+});
+
+test("call records add response outcomes as response snapshots", async (t) => {
+  const { request, refill } = await startMock(t);
+  await request("/ehr/patients:match", "POST", {
+    factors: {
+      firstName: "Alice",
+      lastName: "Nguyen",
+      dob: "1988-03-12",
+      zip: "94107",
+    },
+  });
+  await request("/ehr/patients/pat_001/pharmacy");
+  await request("/ehr/patients/pat_001/pharmacy", "PUT", {
+    pharmacyId: "ph_001",
+  });
+  await refill("pat_001", "m_unknown");
+  const calls = (await request("/__calls")).body;
+  assert.deepEqual(
+    calls.map((call: { status: number; response: unknown }) => ({
+      status: call.status,
+      response: call.response,
+    })),
+    [
+      { status: 200, response: { count: 1, patientId: "pat_001" } },
+      { status: 200, response: { pharmacyId: "ph_002", name: "Mission Rx" } },
+      { status: 200, response: { ok: true } },
+      { status: 404, response: { error: "medication not found" } },
+    ],
+  );
+  assert.deepEqual(calls[0].query, {});
+});
+
+test("harness faults reject invalid input and consume configured failures without mutating", async (t) => {
+  const { request } = await startMock(t);
+  assert.equal(
+    (
+      await request("/__harness/faults", "POST", {
+        method: "GET",
+        path: "https://outside.test",
+      })
+    ).status,
+    400,
+  );
+  await request("/__harness/faults", "POST", {
+    method: "GET",
+    path: "/ehr/time",
+    times: 1,
+  });
+  assert.equal((await request("/ehr/time")).status, 503);
+  assert.equal((await request("/ehr/time")).status, 200);
+  await request("/__harness/faults", "POST", {
+    method: "PUT",
+    path: "/ehr/patients/pat_001/pharmacy",
+    times: 20,
+  });
+  assert.equal(
+    (
+      await request("/ehr/patients/pat_001/pharmacy", "PUT", {
+        pharmacyId: "ph_001",
+      })
+    ).status,
+    503,
+  );
+  assert.equal(
+    (await request("/ehr/patients/pat_001/pharmacy")).body.pharmacyId,
+    "ph_002",
+  );
 });

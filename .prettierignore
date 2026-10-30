@@ -7,3 +7,5 @@ docs/ai-log/
 README.md
 .stryker-tmp/
 reports/mutation/
+mock/data.dev.ts
+conformance/starter/

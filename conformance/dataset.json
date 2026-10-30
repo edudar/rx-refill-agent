@@ -1,0 +1,718 @@
+{
+  "now": "2026-09-01T12:00:00Z",
+  "patients": [
+    {
+      "patientId": "pat_001",
+      "firstName": "Alice",
+      "lastName": "Nguyen",
+      "dob": "1988-03-12",
+      "phone": "415-555-1234",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_happy",
+          "name": "Lisinopril 10mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_002",
+      "firstName": "Hiro",
+      "lastName": "Alvarez",
+      "dob": "1997-06-15",
+      "phone": "415-555-9889",
+      "zip": "94118",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_cii",
+          "name": "Methylphenidate 20mg",
+          "isControlled": true,
+          "schedule": "CII",
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 0,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_003",
+      "firstName": "Alice",
+      "lastName": "Walsh",
+      "dob": "1989-04-11",
+      "phone": "415-555-3367",
+      "zip": "94103",
+      "currentPharmacyId": "ph_003",
+      "medications": [
+        {
+          "medId": "m_exp",
+          "name": "Atorvastatin 40mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 0,
+          "rxExpirationDate": "2026-08-02",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_004",
+      "firstName": "Emma",
+      "lastName": "Okafor",
+      "dob": "1969-06-25",
+      "phone": "415-555-4194",
+      "zip": "94118",
+      "currentPharmacyId": "ph_004",
+      "medications": [
+        {
+          "medId": "m_early",
+          "name": "Alprazolam 0.5mg",
+          "isControlled": true,
+          "schedule": "CIV",
+          "lastFilledDate": "2026-08-28",
+          "daysSupply": 30,
+          "refillsRemaining": 2,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        },
+        {
+          "medId": "m_ok",
+          "name": "Metformin 500mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 5,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_005",
+      "firstName": "Omar",
+      "lastName": "Miller",
+      "dob": "1991-04-12",
+      "phone": "415-555-4143",
+      "zip": "94107",
+      "currentPharmacyId": "ph_001",
+      "medications": [
+        {
+          "medId": "m_ctrl_ok",
+          "name": "Lorazepam 1mg",
+          "isControlled": true,
+          "schedule": "CIV",
+          "lastFilledDate": "2026-08-03",
+          "daysSupply": 30,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_006",
+      "firstName": "Leo",
+      "lastName": "Rossi",
+      "dob": "1964-08-22",
+      "phone": "415-555-4180",
+      "zip": "94122",
+      "currentPharmacyId": "ph_003",
+      "medications": [
+        {
+          "medId": "m_warf_stale",
+          "name": "Warfarin 5mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 4,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": {
+            "type": "INR",
+            "withinDays": 30
+          }
+        }
+      ],
+      "labs": [
+        {
+          "type": "INR",
+          "value": "2.4",
+          "takenDate": "2026-06-30"
+        }
+      ]
+    },
+    {
+      "patientId": "pat_007",
+      "firstName": "Priya",
+      "lastName": "Diaz",
+      "dob": "1982-05-01",
+      "phone": "415-555-0372",
+      "zip": "94112",
+      "currentPharmacyId": "ph_003",
+      "medications": [
+        {
+          "medId": "m_warf_ok",
+          "name": "Warfarin 5mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 4,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": {
+            "type": "INR",
+            "withinDays": 30
+          }
+        }
+      ],
+      "labs": [
+        {
+          "type": "INR",
+          "value": "2.6",
+          "takenDate": "2026-08-22"
+        }
+      ]
+    },
+    {
+      "patientId": "pat_008",
+      "firstName": "Emma",
+      "lastName": "Nguyen",
+      "dob": "1957-07-04",
+      "phone": "415-555-8835",
+      "zip": "94112",
+      "currentPharmacyId": "ph_001",
+      "medications": [
+        {
+          "medId": "m_twin_a",
+          "name": "Amlodipine 5mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 2,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_009",
+      "firstName": "Emma",
+      "lastName": "Nguyen",
+      "dob": "1957-07-04",
+      "phone": "415-555-6980",
+      "zip": "94112",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_twin_b",
+          "name": "Omeprazole 20mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 1,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_010",
+      "firstName": "Emma",
+      "lastName": "Diaz",
+      "dob": "1974-04-08",
+      "phone": "415-555-4622",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_fill_0",
+          "name": "Levothyroxine 75mcg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 2,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_011",
+      "firstName": "Grace",
+      "lastName": "Nguyen",
+      "dob": "1964-05-16",
+      "phone": "415-555-4819",
+      "zip": "94110",
+      "currentPharmacyId": "ph_004",
+      "medications": [
+        {
+          "medId": "m_fill_1",
+          "name": "Losartan 50mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 4,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_012",
+      "firstName": "Emma",
+      "lastName": "Vargas",
+      "dob": "1974-11-25",
+      "phone": "415-555-1205",
+      "zip": "94103",
+      "currentPharmacyId": "ph_004",
+      "medications": [
+        {
+          "medId": "m_fill_2",
+          "name": "Levothyroxine 75mcg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 5,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_013",
+      "firstName": "Rosa",
+      "lastName": "Chen",
+      "dob": "1988-03-12",
+      "phone": "415-555-9013",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_no_refills",
+          "name": "Lisinopril 10mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 0,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_014",
+      "firstName": "Nia",
+      "lastName": "Patel",
+      "dob": "1988-03-12",
+      "phone": "415-555-9014",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_expired",
+          "name": "Lisinopril 10mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2026-08-31",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_015",
+      "firstName": "Ben",
+      "lastName": "Hughes",
+      "dob": "1988-03-12",
+      "phone": "415-555-9015",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_lab_missing",
+          "name": "Warfarin 5mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": {
+            "type": "INR",
+            "withinDays": 30
+          }
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_016",
+      "firstName": "Mara",
+      "lastName": "Stone",
+      "dob": "1988-03-12",
+      "phone": "415-555-9016",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_lab_wrong",
+          "name": "Warfarin 5mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": {
+            "type": "INR",
+            "withinDays": 30
+          }
+        }
+      ],
+      "labs": [
+        {
+          "type": "CBC",
+          "value": "normal",
+          "takenDate": "2026-08-22"
+        }
+      ]
+    },
+    {
+      "patientId": "pat_017",
+      "firstName": "Tessa",
+      "lastName": "Reed",
+      "dob": "1988-03-12",
+      "phone": "415-555-9017",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_ctrl_boundary",
+          "name": "Lorazepam 1mg",
+          "isControlled": true,
+          "schedule": "CIV",
+          "lastFilledDate": "2026-08-04",
+          "daysSupply": 30,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_018",
+      "firstName": "Simon",
+      "lastName": "Park",
+      "dob": "1988-03-12",
+      "phone": "415-555-9018",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_ctrl_outside",
+          "name": "Lorazepam 1mg",
+          "isControlled": true,
+          "schedule": "CIV",
+          "lastFilledDate": "2026-08-05",
+          "daysSupply": 30,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_019",
+      "firstName": "Julia",
+      "lastName": "Brooks",
+      "dob": "1988-03-12",
+      "phone": "415-555-9019",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_lab_boundary",
+          "name": "Warfarin 5mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": {
+            "type": "INR",
+            "withinDays": 30
+          }
+        }
+      ],
+      "labs": [
+        {
+          "type": "INR",
+          "value": "2.5",
+          "takenDate": "2026-08-02"
+        }
+      ]
+    },
+    {
+      "patientId": "pat_020",
+      "firstName": "Owen",
+      "lastName": "Scott",
+      "dob": "1988-03-12",
+      "phone": "415-555-9020",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_lab_outside",
+          "name": "Warfarin 5mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": {
+            "type": "INR",
+            "withinDays": 30
+          }
+        }
+      ],
+      "labs": [
+        {
+          "type": "INR",
+          "value": "2.5",
+          "takenDate": "2026-08-01"
+        }
+      ]
+    },
+    {
+      "patientId": "pat_021",
+      "firstName": "Eva",
+      "lastName": "Price",
+      "dob": "1988-03-12",
+      "phone": "415-555-9021",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_lab_multiple",
+          "name": "Warfarin 5mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": {
+            "type": "INR",
+            "withinDays": 30
+          }
+        }
+      ],
+      "labs": [
+        {
+          "type": "INR",
+          "value": "2.4",
+          "takenDate": "2026-06-30"
+        },
+        {
+          "type": "INR",
+          "value": "2.5",
+          "takenDate": "2026-08-22"
+        }
+      ]
+    },
+    {
+      "patientId": "pat_022",
+      "firstName": "Ian",
+      "lastName": "Cole",
+      "dob": "1988-03-12",
+      "phone": "415-555-9022",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_exp_today",
+          "name": "Lisinopril 10mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2026-09-01",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_023",
+      "firstName": "Maya",
+      "lastName": "Ross",
+      "dob": "1988-03-12",
+      "phone": "415-555-9023",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_exp_yesterday",
+          "name": "Lisinopril 10mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2026-08-31",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_024",
+      "firstName": "Nora",
+      "lastName": "Bell",
+      "dob": "1988-03-12",
+      "phone": "415-555-9024",
+      "zip": "94107",
+      "currentPharmacyId": null,
+      "medications": [
+        {
+          "medId": "m_no_pharmacy",
+          "name": "Lisinopril 10mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_025",
+      "firstName": "Adrian",
+      "lastName": "Young",
+      "dob": "1988-03-12",
+      "phone": "415-555-9025",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_strength_5",
+          "name": "Amlodipine 5mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        },
+        {
+          "medId": "m_strength_10",
+          "name": "Amlodipine 10mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": null
+        }
+      ],
+      "labs": []
+    },
+    {
+      "patientId": "pat_026",
+      "firstName": "Quinn",
+      "lastName": "Li",
+      "dob": "1988-03-12",
+      "phone": "415-555-9026",
+      "zip": "94107",
+      "currentPharmacyId": "ph_002",
+      "medications": [
+        {
+          "medId": "m_lab_future",
+          "name": "Warfarin 5mg",
+          "isControlled": false,
+          "schedule": null,
+          "lastFilledDate": "2026-08-12",
+          "daysSupply": 90,
+          "refillsRemaining": 3,
+          "rxExpirationDate": "2027-02-28",
+          "requiresRecentLab": {
+            "type": "INR",
+            "withinDays": 30
+          }
+        }
+      ],
+      "labs": [
+        {
+          "type": "INR",
+          "value": "2.5",
+          "takenDate": "2026-09-02"
+        }
+      ]
+    }
+  ],
+  "pharmacies": [
+    {
+      "pharmacyId": "ph_001",
+      "name": "Bay Pharmacy",
+      "address": "123 Market St, San Francisco, CA 94103"
+    },
+    {
+      "pharmacyId": "ph_002",
+      "name": "Mission Rx",
+      "address": "456 Valencia St, San Francisco, CA 94110"
+    },
+    {
+      "pharmacyId": "ph_003",
+      "name": "Sunset Drugs",
+      "address": "789 Irving St, San Francisco, CA 94122"
+    },
+    {
+      "pharmacyId": "ph_004",
+      "name": "Marina Health Pharmacy",
+      "address": "321 Chestnut St, San Francisco, CA 94123"
+    }
+  ]
+}
