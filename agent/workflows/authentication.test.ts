@@ -10,7 +10,7 @@ import type {
   ResponseGenerator,
   ResponseGenerationInput,
 } from "../contracts/response-generation.js";
-import type { EhrClient, PatientRecord } from "../contracts/ehr.js";
+import type { PatientIdentityLookup, PatientRecord } from "../contracts/ehr.js";
 import type {
   ExtractionInput,
   IdentityUpdate,
@@ -67,7 +67,7 @@ const patient: PatientRecord = {
 
 function fixture(
   updates: Record<string, Partial<IdentityUpdate>>,
-  overrides: Partial<EhrClient> = {},
+  overrides: Partial<PatientIdentityLookup> = {},
   generateResponse?: ResponseGenerator,
   verified?: ConversationSteps["verified"],
 ) {

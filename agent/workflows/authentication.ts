@@ -2,7 +2,7 @@ import type {
   ConversationStep,
   StepResult,
 } from "../contracts/conversation.js";
-import type { EhrClient, PatientRecord } from "../contracts/ehr.js";
+import type { PatientIdentityLookup, PatientRecord } from "../contracts/ehr.js";
 import {
   identityUpdateSchema,
   type IdentityExtractor,
@@ -38,7 +38,7 @@ interface AuthenticationTurn {
 export function createAuthenticationFlow(options: {
   extractIdentity: IdentityExtractor;
   generateResponse: ResponseGenerator;
-  ehr: EhrClient;
+  ehr: PatientIdentityLookup;
 }): ConversationStep<AuthenticatingConversation> {
   return async (conversation, { text }) => {
     const turn: AuthenticationTurn = {
@@ -267,7 +267,7 @@ type Verification =
 
 async function verifyIdentity(
   turn: AuthenticationTurn,
-  ehr: EhrClient,
+  ehr: PatientIdentityLookup,
 ): Promise<Verification> {
   const { conversation } = turn;
   const factors = completeIdentitySchema.parse(conversation.factors);

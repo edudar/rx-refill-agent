@@ -151,11 +151,49 @@ for, as written. It is kept as `pendingIntent` (latest mention wins, at most 100
 characters) and carried into the `verified` phase. It is never sent to the EHR or
 matched against records before verification, and out-of-scope messages cannot set it.
 
-Verification leaves the conversation `in_progress`. Medication selection,
-clinical rules, pharmacy confirmation, and refill submission remain unimplemented,
-so the full-refill happy-path scenario is not expected to pass yet. Unit tests use
-simulated model/EHR responses and cover partial details, corrections, invalid
-values, ambiguous/no matches, isolation, expiration, concurrency, and failures.
+Verification leaves the conversation `in_progress`. Unit tests use simulated
+model/EHR responses and cover partial details, corrections, invalid values,
+ambiguous/no matches, isolation, expiration, concurrency, and failures.
+
+## Clinical rules and EHR writes
+
+`evaluateRefillEligibility(medication, labs, now)` (`agent/domain/refill-eligibility.ts`)
+is a pure function of the docs/API.md §4 rules. It returns `eligible`, or every failed
+rule plus a disposition: `escalate` when a prescriber must act (Schedule II, no
+refills, expired) and `hold` when the refill may become possible later (controlled
+too early, missing or stale lab). Rules use the UTC calendar day of `GET /ehr/time`,
+never the host clock. The expiration day, the day exactly two days before a
+controlled supply runs out, and a lab exactly `withinDays` old are allowed; future
+labs do not count. A controlled flag without a schedule gets the early-refill rule.
+Malformed clinical records fail EHR schema validation as a whole, and impossible
+dates throw rather than shifting a rule.
+
+Every EHR write goes through the refill gate (`agent/workflows/refill-gate.ts`).
+Given a verified conversation and the exact medication and pharmacy the patient
+confirmed, it:
+
+1. refuses an order for any patient other than the verified one;
+2. re-reads the clock, medications, and required labs, and re-applies the rules,
+   so a record that changed after the proposal is judged as it is now;
+3. updates the pharmacy only if the confirmed destination differs, and never
+   submits unless that update succeeded;
+4. submits the refill once and reports the outcome; it never throws.
+
+The gate keeps a submission ledger outside conversation state for 24 hours, keyed by
+patient and medication, and claims the entry before any request. A rolled-back
+turn, an evicted conversation, or a second conversation for the same patient
+therefore cannot repeat a refill, and concurrent attempts submit only once.
+
+The EHR client reports whether a failed request could have been applied. Only a
+4xx proves the refill was refused (`submission_rejected`; the patient may try
+again). A 5xx, timeout, dropped connection, or unreadable success response may hide
+an accepted refill, so it is `submission_unknown`: never retried, blocked in the
+ledger, and to be escalated. Read outages and failed pharmacy updates write no
+refill and may be retried. Authentication receives only `match` and `getPatient`.
+
+Medication selection, the pharmacy dialogue, and the patient-facing replies for
+these outcomes are not implemented yet, and the gate is not yet wired into
+`agent/app.ts`, so the full-refill scenarios are still expected to fail.
 
 ## Conformance scenarios
 
