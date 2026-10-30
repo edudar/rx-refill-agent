@@ -5,3 +5,5 @@ coverage/
 package-lock.json
 docs/ai-log/
 README.md
+.stryker-tmp/
+reports/mutation/

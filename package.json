@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "Candidate fixture — prescription-refill agent assessment (mock EHR + pharmacy, skeleton agent, conformance check).",
+  "description": "Candidate fixture \u2014 prescription-refill agent assessment (mock EHR + pharmacy, skeleton agent, conformance check).",
   "engines": {
     "node": ">=22"
   },
@@ -12,11 +12,14 @@
     "agent": "tsx agent/app.ts",
     "conformance": "tsx conformance/run.ts",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test agent/*.test.ts agent/domain/*.test.ts conformance/*.test.ts",
+    "test": "node --import ./scripts/test-environment.mjs --import tsx --test agent/*.test.ts agent/domain/*.test.ts conformance/*.test.ts scripts/*.test.mjs",
+    "test:mutation": "stryker run",
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
   "devDependencies": {
+    "@stryker-mutator/core": "10.1.1",
+    "@stryker-mutator/typescript-checker": "10.1.1",
     "@types/node": "^22.0.0",
     "prettier": "3.9.10",
     "tsx": "^4.19.0",

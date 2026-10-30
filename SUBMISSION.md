@@ -222,6 +222,64 @@ npm run format:check  # check formatting without changing files (suitable for CI
 npm run typecheck     # check TypeScript separately
 ```
 
+## Mutation testing
+
+[StrykerJS](https://stryker-mutator.io/docs/stryker-js/configuration/) runs the
+existing Node unit tests through its command runner. No test-framework migration
+or live model credentials are needed. `stryker.config.json` mutates agent runtime
+code and schemas, excluding test files and the startup-only `agent/app.ts`.
+Mocks, live conformance scripts, dependencies, and test tooling are outside the
+mutation scope. The TypeScript checker identifies type-invalid mutants separately
+as `CompileError` rather than treating them as successful test detections.
+
+`.github/workflows/quality.yml` runs type checking, formatting, unit tests, and the
+mutation score gate on pull requests, pushes to `main`, and manual dispatch. It
+uses the Node version in `.nvmrc` and uploads HTML/JSON mutation reports as a
+seven-day artifact even when the gate fails. No model credentials are configured.
+
+```sh
+npm run test:mutation  # full run; fail below a 75% mutation score
+```
+
+The HTML report is `reports/mutation/index.html`; machine-readable results are in
+`reports/mutation/mutation.json`. Reports and `.stryker-tmp/` are ignored by Git
+and Prettier. Secrets files are excluded from mutation sandboxes. Both unit and
+mutation tests preload `scripts/test-environment.mjs`, which removes
+OpenAI/EHR/pharmacy credentials and blocks outbound fetches; injected mock
+transports and loopback HTTP for server tests remain available. This guards fetch
+calls, rather than providing complete network isolation.
+
+Stryker's native `thresholds.break` in `stryker.config.json` makes the run fail
+below a 75% mutation score. Raise this threshold as tests improve. This is a
+project-wide percentage, so it permits survivor counts to grow with the codebase
+and improvements in one file can offset regressions in another. There is no
+custom report checker, baseline file, or automatic ratchet.
+
+The initial full run produced 663 mutants: 318 killed, 13 timed out, 109 survived,
+and 223 type-invalid (`CompileError`), with a mutation score of 75.23%. The starting
+score floor is 75%. The 109 survivors represent existing test debt to review.
+The run took about eight minutes locally.
+Authentication has 21 survivors; useful first review targets include returned
+surname/DOB comparisons and disambiguation follow-ups. The server has 17 survivors,
+including request-boundary and error-response mutations. Inspect the HTML report
+to distinguish real assertion gaps from equivalent behavior before changing tests.
+
+For faster investigation, narrow a report run to one source file:
+
+```sh
+npm run test:mutation -- --mutate "agent/authentication.ts"
+```
+
+A targeted run applies the same threshold only to its selected files. Run the full
+command before merging to check the project-wide score. Mutation results are not reused incrementally, so changes to tests
+always get a fresh run. Two Stryker workers limit resource use; the command runner
+starts the complete suite for each viable mutant and cannot provide per-test
+coverage analysis. Untested mutations therefore appear as survivors rather than
+reliably distinguishable `NoCoverage` results. A zero uncovered count is not a
+coverage claim. Review survivors for meaningful missing assertions or equivalent
+behavior; do not add exact wording assertions just to improve the score. Mutation
+testing does not evaluate actual LLM response quality; live conformance still does.
+
 ## Notes to the reviewer
 
 - Test files sit beside and match their production modules. `identity-extractor.test.ts`
