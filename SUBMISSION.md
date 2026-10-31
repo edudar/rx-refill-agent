@@ -14,7 +14,9 @@ npm install
 OPENAI_API_KEY=... npm run agent    # agent on :5050
 ```
 
-Then `npm run conformance` checks it. `npm test` needs no credentials.
+`npm test` needs no credentials. Against `npm run mock`, `npm run conformance` runs only
+the starter script; serve the extended fixture with `npm run mock:conformance` to run all
+53 scenarios.
 
 ## Environment
 
@@ -30,8 +32,8 @@ Then `npm run conformance` checks it. `npm test` needs no credentials.
 | `AGENT_PORT`              | `5050`                  |                                                             |
 | `CONVERSATION_LOGGING`    | `true`                  | JSON-line transcripts on stdout, including chat PII.        |
 
-Invalid values fail at startup. `.env.openai` is a template: copy it to `.env` and run
-`node --env-file=.env --import=tsx agent/app.ts`.
+Invalid values fail at startup. To keep the key out of shell history, put the variables
+in a `.env` file (ignored by Git) and run `node --env-file=.env --import=tsx agent/app.ts`.
 
 ## Model
 
@@ -45,7 +47,9 @@ reports the first time it answers. In the 2026-10-30 runs the API reported
 - **Code decides, the model proposes.** Three model calls extract identity fields,
   interpret refill turns, and phrase identity prompts. Application code validates every
   value, resolves medications and pharmacies against retrieved records, applies the
-  clinical rules, and decides every transition. Models never see retrieved records.
+  clinical rules, and decides every transition. Models get no records or tools; the
+  refill interpreter does see the agent's previous reply, which can name the patient's
+  medications and pharmacies.
 - **Explicit conversation phases.** State is a union of `authenticating`, `verified`, and
   `ended`. The verifying turn hands off to the refill in the same turn, and turns commit
   only when they succeed.
@@ -77,15 +81,18 @@ reports the first time it answers. In the 2026-10-30 runs the API reported
 - A 4xx refill failure is reported and may be retried. A 5xx, timeout, or unreadable
   response may hide an accepted refill, so it is never resent and the conversation
   escalates. Failed reads or pharmacy updates write no refill.
-- Unit tests (`npm test`) cover rule boundaries, every write outcome, concurrency, and
-  wording guarantees. 53 conformance scenarios cover identity, clinical, medication,
-  pharmacy, conversation, and outage cases (`IMPLEMENTATION.md`).
+- Unit tests (`npm test`) cover rule boundaries, every write outcome, turn
+  serialization, conversation endings, and wording guarantees. 53 conformance scenarios
+  cover identity, clinical, medication, pharmacy, conversation, repeat-request, and outage
+  cases (`IMPLEMENTATION.md`).
 
 ## Status
 
 On 2026-10-30, `npm run conformance` passed all 53 scenarios against `gpt-6-luna` with
-reasoning effort `none` (53 passed, 0 failed, 0 skipped), and all unit tests, type
-checking, and formatting pass. That is one live run: model output varies between runs,
-and conformance reply checks are lexical, so transcripts still deserve review. State is
-in memory, and escalation does not create an external handoff. AI session transcripts
-go in `docs/ai-log/`.
+reasoning effort `none` (53 passed, 0 failed, 0 skipped). Two later commits changed
+behavior and wording: dead-end conversations now escalate, and patient-facing replies
+were rewritten after a satisfaction review of those dialogues. Unit tests, type checking,
+and formatting pass on the current code, but the live suite has not been rerun since.
+Model output also varies between runs, and conformance reply checks are lexical, so
+transcripts still deserve review. State is in memory, and escalation does not create an
+external handoff. AI session transcripts go in `docs/ai-log/`.

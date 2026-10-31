@@ -27,7 +27,8 @@ HTTP (server.ts) -> conversation handler -> phase step -> clients
 - `agent/contracts/` holds Zod schemas with their inferred types for HTTP, EHR,
   pharmacy, service errors, model I/O, and logging.
 - `agent/config.ts` reads only the environment passed to `loadConfig(env)`; importing
-  it has no side effects. `agent/utils/date-of-birth.ts` normalizes DOBs.
+  it has no side effects. `agent/utils/` holds DOB parsing (`date-of-birth.ts`) and
+  date formatting for replies (`calendar-date.ts`).
 
 Tests sit beside their modules. Folders are plain source folders: no barrels,
 separate packages, or build step.
@@ -43,11 +44,13 @@ gate calls `setPharmacy` and `submitRefill`. No model has tools.
 
 Conversation state is a discriminated union by `phase` (`agent/domain/conversation.ts`):
 
-| Phase            | Holds                                                  |
-| ---------------- | ------------------------------------------------------ |
-| `authenticating` | identity factors, failed match attempts, last prompt   |
-| `verified`       | the matched patient record and optional `refill` state |
-| `ended`          | outcome: `complete` or `escalated`                     |
+| Phase            | Holds                                                                                      |
+| ---------------- | ------------------------------------------------------------------------------------------ |
+| `authenticating` | identity factors, failed match attempts, the pending request, unanswered and outage counts |
+| `verified`       | the matched patient record, optional `refill` state, and counts of turns without progress  |
+| `ended`          | outcome (`complete` or `escalated`) and the follow-up reply for later messages             |
+
+Every phase also keeps the last 12 messages and the agent's last prompt.
 
 Identity factors are dropped once verification succeeds. The reply `state` is derived
 from the phase, so a step cannot report a state that disagrees with it.
@@ -85,8 +88,10 @@ only, with no OTP or proof of possession.
 Verification also ends instead of looping. Once a required detail has been requested,
 the first non-answer gets an explanation of why it is needed, and a second consecutive
 non-answer (a refusal, an off-topic message, or a reply without the detail) escalates
-with fixed wording. Questions, such as why a detail is needed, do not count. A second
-consecutive verification outage escalates instead of asking the patient to retry again.
+with fixed wording that names the missing detail. Questions, such as why a detail is
+needed, do not count. A second consecutive verification failure (a service outage, or a
+record whose demographics disagree with the match) escalates instead of asking the
+patient to retry again.
 
 DOBs may use month names or abbreviations (`March 12, 1988`, `12 Mar 1988`), year-first
 dates (`1988/3/12`), or unambiguous numeric dates (`12/31/1988`, `31/12/1988`). The model
@@ -97,13 +102,17 @@ or December 3, 1988?"); two-digit years and impossible dates prompt for the mont
 written out. No locale is inferred from ZIP or phone. The model asks for a date format
 only after a date of birth turns out to be invalid or ambiguous.
 
-Each authentication turn uses two model calls: extraction (identity fields, scope, and
-any `medicationMention`) and response generation, which phrases the application's
-decision using field names and the last 12 messages, never retrieved records. The
-verification confirmation ("Thanks, your identity is verified."), outage replies, and
-every escalation handoff are fixed text instead. Out-of-scope messages get a fixed redirect
-and cannot change identity or intent. Malformed, refused, or failed generation falls
-back to short fixed text for the same decision.
+Each authentication turn uses up to two model calls: extraction (identity fields, scope,
+whether the message is a question, and any `medicationMention`) and response generation,
+which phrases the application's decision using field names and the last 12 messages,
+never retrieved records. These replies are fixed text instead: the verification
+confirmation ("Thanks, your identity is verified."), outages, the date-of-birth choice,
+and every escalation handoff. Out-of-scope messages get a fixed redirect and cannot
+change identity or intent; if nothing has been collected yet, the redirect invites the
+patient to name a medication rather than asking for identity. Malformed, refused, or
+failed generation falls back to short fixed text for the same decision. The generator
+asks for phone digits as needed to find the right record, without revealing that other
+records matched.
 
 A medication named before verification is kept as `pendingIntent` (latest mention wins,
 at most 100 characters). It is never sent to the EHR or matched against records before
@@ -116,8 +125,8 @@ interpretation and starts from `pendingIntent`. On later turns, one model call
 (`refill-interpreter.ts`) turns the message into a proposal: scope, intent (`confirm`,
 `decline`, `change_pharmacy`, `cancel`, `other`), a medication mention, a numbered option,
 a pharmacy name and location, and whether to keep the current pharmacy. The model sees
-only the message, the question asked, and the last prompt. The application resolves
-everything else.
+only the message, the question asked, and the agent's last prompt, which can name the
+patient's medications, pharmacies, and dates. The application resolves everything else.
 
 Refill state (`RefillState`) is one of `choosing_medication`, `choosing_pharmacy`, or
 `confirming`; no state means no medication has been chosen yet.
@@ -141,9 +150,11 @@ file, the patient is asked for one.
 **Pharmacy.** A named pharmacy is first matched against destinations already presented
 in this refill (`findNamedPharmacy`, which requires a unique match). Otherwise the
 directory is searched by name; a location only narrows several name matches, so an
-unknown name never turns into unrelated pharmacies on the same street. One result is
-proposed for confirmation; several are listed as numbered options (up to five); none
-asks for another name or address.
+unknown name never turns into unrelated pharmacies on the same street. An area search for
+a different pharmacy leaves out the current one. One result is proposed for
+confirmation; several are listed as numbered options (up to five); none asks for another
+name or address. Asked to "just pick one", the agent never chooses a new pharmacy, but
+offers the one on file, which a plain "yes" then confirms.
 
 **Confirmation.** Only a destination already shown to the patient can be confirmed. A
 "yes" confirms the proposal; "keep Mission Rx and submit" confirms a presented
@@ -182,16 +193,11 @@ The wording is written for both regular and occasional patients:
   to a record error rather than a missing test.
 - Handoffs say the request was referred and give a step the patient can take ("If it's
   urgent, please contact your prescriber's office directly") without promising a callback.
-  An uncertain submission also says not to request it again and suggests calling the
-  pharmacy.
-- A failed pharmacy update offers keeping the current pharmacy. Asked to "just pick one",
-  the agent never chooses a new pharmacy but offers the one on file. An area search for a
-  different pharmacy leaves out the current one.
+  An uncertain submission also says it won't be resent, asks the patient not to request
+  it again, and suggests calling the pharmacy.
+- A failed pharmacy update offers keeping the current pharmacy instead.
 - Success says the pharmacy will prepare the refill and can be contacted about timing,
   without promising when it will be ready.
-- Identity handoffs name the missing detail. An off-topic opening invites the patient to
-  name a medication rather than asking for identity, and the disambiguation request says
-  it is needed to find the right record without revealing that other records matched.
 
 ## Clinical rules
 
@@ -247,11 +253,12 @@ could have acted: `rejected` (4xx), `unavailable` (5xx), `no_response`, and
 | `pharmacy_update_failed`                                    | update failed; no refill sent       | retry by confirming     |
 | `submission_rejected` (4xx)                                 | EHR refused the refill              | retry by confirming     |
 | `submission_unknown`                                        | 5xx, timeout, or unreadable success | escalated, never resent |
-| `ineligible`                                                | the record changed since the review | escalated or held       |
+| `ineligible`                                                | the record changed since the review | escalated               |
 | `not_authorized`, `medication_not_found`, `cannot_evaluate` | cannot be evaluated as given        | escalated               |
 
 A 503 is treated as an unknown outcome: a refill cannot be safely repeated, and HTTP
-does not guarantee a 503 was not applied.
+does not guarantee a 503 was not applied. Retries are always the patient's explicit
+"yes"; a second consecutive failure escalates (see Endings).
 
 ## Configuration details
 
@@ -281,8 +288,8 @@ OpenAI error `type` and `code`, the incomplete reason, the request ID, and any
 `x-ratelimit-*` response headers under `rateLimit` (for example `limit-requests`,
 `remaining-requests`, `reset-requests`). A rate limit appears as `RateLimitError` with
 status 429 and code `rate_limit_exceeded`; `rateLimit` shows which window was exhausted
-and when it resets. A spent quota appears as code `insufficient_quota`. Error messages are never logged, because they can
-quote request content. The caller's fallback reply is unchanged.
+and when it resets. A spent quota appears as code `insufficient_quota`. Error messages are never logged,
+because they can quote request content. The caller's fallback reply is unchanged.
 
 ## Testing
 
@@ -393,13 +400,20 @@ their owning module.
 
 ## Known limitations
 
-- Live conformance passed in full once (2026-10-30, `gpt-6-luna`, effort `none`). Model
-  output varies between runs, so one pass does not establish stability, and reply
-  checks are lexical rather than semantic. Unit tests use simulated model output.
+- Live conformance passed in full once (2026-10-30, `gpt-6-luna`, effort `none`), before
+  the commits that escalate dead-end conversations and rewrite patient-facing wording;
+  it has not been rerun since. Model output varies between runs, so one pass does not
+  establish stability, and reply checks are lexical rather than semantic. Unit tests use
+  simulated model output.
 - Conversation state is in memory and lost on restart.
 - Nothing prevents two separate conversations from each submitting the same refill;
   that needs EHR-side deduplication the API does not offer.
 - Escalation sets the `escalated` state with fixed handoff wording; no external
   handoff or ticket is created, and no structured audit record is written.
-- Refill-phase clarifications use fixed wording rather than model phrasing.
-- Patient-supplied identity details are sent to OpenAI for extraction.
+- Refill-phase clarifications use fixed wording rather than model phrasing, and all
+  replies are in English (dates formatted for en-US).
+- Patient-supplied identity details are sent to OpenAI for extraction, and the agent's
+  previous reply, which can name medications and pharmacies, is sent for refill
+  interpretation.
+- No mutation score is recorded for the current code; the 75% gate is only checked when
+  `npm run test:mutation` runs.
