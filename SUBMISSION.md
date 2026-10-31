@@ -92,5 +92,12 @@ On 2026-10-30, `npm run conformance` passed all 53 scenarios against `gpt-6-luna
 reasoning effort `none`, both before and after the changes that escalate dead-end
 conversations and rewrite patient-facing replies; the latest run used the current code.
 Unit tests, type checking, and formatting also pass. Model output varies between runs,
-and conformance reply checks are lexical, so transcripts still deserve review. State is in memory, and escalation does not create an
+and conformance reply checks are lexical, so transcripts still deserve review.
+
+[`agent-dialogs.md`](agent-dialogs.md) holds the transcripts of that latest run (53
+scenarios, 56 conversations), and [`agent-dialogs-ratings.md`](agent-dialogs-ratings.md)
+rates each dialogue from 0 to 1 from the patient's seat, for a regular and an occasional
+patient, with a one-line reason. The averages are 0.83 and 0.81, up 0.11 and 0.12 from
+the run before the wording changes. The ratings are a separate review of the
+transcripts, not feedback from patients. State is in memory, and escalation does not create an
 external handoff. AI session transcripts go in `docs/ai-log/`.

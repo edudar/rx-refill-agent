@@ -9,3 +9,5 @@ README.md
 reports/mutation/
 mock/data.dev.ts
 conformance/starter/
+agent-dialogs.md
+agent-dialogs-ratings.md
