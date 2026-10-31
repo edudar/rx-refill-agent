@@ -98,7 +98,19 @@ cat package.json && npm audit 2>&1 | head -80
 qs  2.2.5 - 6.16.0
 Severity: moderate
 qs has a remotely triggerable DoS: qs.stringify crashes with TypeError on null/undefined entries in comma-format arrays when encodeValuesOnly is set - https://github.com/advisories/GHSA-q8mj-m7cp-5q26
-… (13 more lines)
+qs array-limit bypass via bracket-key comma parsing - https://github.com/advisories/GHSA-x5fp-wj9c-mxmx
+qs: Denial of Service via Attacker Controlled isBuffer - https://github.com/advisories/GHSA-4mjr-xmp4-gh2g
+qs : qs.stringify with arrayFormat 'comma' throws an uncaught TypeError on array elements carrying a non-callable own toString (DoS) - https://github.com/advisories/GHSA-6pq8-jhm2-2vcw
+fix available via `npm audit fix`
+node_modules/qs
+  typed-rest-client  2.3.1 - 3.1.0
+  Depends on vulnerable versions of qs
+  node_modules/typed-rest-client
+
+2 moderate severity vulnerabilities
+
+To address all issues, run:
+  npm audit fix
 ```
 
 **Trace qs dependency path and latest versions**
@@ -212,7 +224,9 @@ index da0521a..1c52fd0 100644
          "js-md4": "^0.3.2",
 -        "qs": "6.15.1",
 +        "qs": "^6.14.1",
-… (3 more lines)
+         "tunnel": "0.0.6",
+         "underscore": "^1.13.8"
+       },
 ```
 
 </details>

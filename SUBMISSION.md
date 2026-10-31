@@ -103,4 +103,7 @@ rates each dialogue from 0 to 1 from the patient's seat, for a regular and an oc
 patient, with a one-line reason. The averages are 0.83 and 0.81, up 0.11 and 0.12 from
 the run before the wording changes. The ratings are a separate review of the
 transcripts, not feedback from patients. State is in memory, and escalation does not create an
-external handoff. AI session transcripts go in `docs/ai-log/`.
+external handoff. AI session transcripts are in `docs/ai-log/`. Strings shaped like API keys or
+bearer tokens were redacted automatically and show as `[REDACTED]`. Every match was a
+placeholder or test value, such as `dev-pharmacy-key`; no real credential appears in the
+logs.
