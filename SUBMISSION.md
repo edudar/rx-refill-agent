@@ -89,10 +89,8 @@ reports the first time it answers. In the 2026-10-30 runs the API reported
 ## Status
 
 On 2026-10-30, `npm run conformance` passed all 53 scenarios against `gpt-6-luna` with
-reasoning effort `none` (53 passed, 0 failed, 0 skipped). Two later commits changed
-behavior and wording: dead-end conversations now escalate, and patient-facing replies
-were rewritten after a satisfaction review of those dialogues. Unit tests, type checking,
-and formatting pass on the current code, but the live suite has not been rerun since.
-Model output also varies between runs, and conformance reply checks are lexical, so
-transcripts still deserve review. State is in memory, and escalation does not create an
+reasoning effort `none`, both before and after the changes that escalate dead-end
+conversations and rewrite patient-facing replies; the latest run used the current code.
+Unit tests, type checking, and formatting also pass. Model output varies between runs,
+and conformance reply checks are lexical, so transcripts still deserve review. State is in memory, and escalation does not create an
 external handoff. AI session transcripts go in `docs/ai-log/`.

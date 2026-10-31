@@ -400,11 +400,10 @@ their owning module.
 
 ## Known limitations
 
-- Live conformance passed in full once (2026-10-30, `gpt-6-luna`, effort `none`), before
-  the commits that escalate dead-end conversations and rewrite patient-facing wording;
-  it has not been rerun since. Model output varies between runs, so one pass does not
-  establish stability, and reply checks are lexical rather than semantic. Unit tests use
-  simulated model output.
+- Live conformance passed 53/53 on 2026-10-30 (`gpt-6-luna`, effort `none`) against the
+  current code, as it did before the endings and wording changes. Model output varies
+  between runs, so two passes do not establish stability, and reply checks are lexical
+  rather than semantic. Unit tests use simulated model output.
 - Conversation state is in memory and lost on restart.
 - Nothing prevents two separate conversations from each submitting the same refill;
   that needs EHR-side deduplication the API does not offer.
