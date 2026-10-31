@@ -26,6 +26,7 @@ import {
 } from "../domain/conversation.js";
 import {
   findNamedPharmacy,
+  matchesLocation,
   matchMedications,
 } from "../domain/refill-choices.js";
 import { evaluateRefillEligibility } from "../domain/refill-eligibility.js";
@@ -380,14 +381,29 @@ async function handlePharmacy(
 }
 
 // Only destinations already shown to the patient can be chosen by name or number.
+// A stated location must match the chosen one's known address; otherwise the
+// directory is searched, so "Bay Pharmacy at 999 Other St" never confirms a
+// different Bay Pharmacy branch that was shown earlier.
 function namedDestination(
   refill: PharmacyStep,
-  { keepCurrentPharmacy, optionNumber, pharmacyName }: RefillUnderstanding,
+  {
+    keepCurrentPharmacy,
+    optionNumber,
+    pharmacyName,
+    pharmacyLocation,
+  }: RefillUnderstanding,
 ): PharmacyChoice | undefined {
-  if (pharmacyName) return findNamedPharmacy(pharmacyName, refill.presented);
-  if (keepCurrentPharmacy && refill.current) return refill.current;
-  if (refill.step === "choosing_pharmacy" && optionNumber)
-    return refill.options[optionNumber - 1];
+  const chosen = pharmacyName
+    ? findNamedPharmacy(pharmacyName, refill.presented)
+    : keepCurrentPharmacy && refill.current
+      ? refill.current
+      : refill.step === "choosing_pharmacy" && optionNumber
+        ? refill.options[optionNumber - 1]
+        : undefined;
+  if (!chosen || !pharmacyLocation) return chosen;
+  return chosen.address && matchesLocation(chosen.address, pharmacyLocation)
+    ? chosen
+    : undefined;
 }
 
 async function searchPharmacies(
@@ -439,11 +455,8 @@ async function findPharmacies(
   if (!query) return [];
   const results = await directory.search(query);
   if (!name || !location || results.length < 2) return results;
-  const area = location.toLowerCase();
-  const narrowed = results.filter(
-    (pharmacy) =>
-      pharmacy.address.toLowerCase().includes(area) ||
-      area.includes(pharmacy.address.toLowerCase().split(",")[0]),
+  const narrowed = results.filter(({ address }) =>
+    matchesLocation(address, location),
   );
   return narrowed.length ? narrowed : results;
 }

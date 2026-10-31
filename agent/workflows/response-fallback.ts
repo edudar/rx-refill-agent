@@ -42,6 +42,8 @@ export function dateOfBirthChoice(
 export const identityEscalation = {
   unanswered: (fields: readonly IdentityField[]) =>
     `I can't verify your identity without your ${describeFields(fields)}, so I'm unable to continue with this request here. Please contact your care team for help.`,
+  unverified:
+    "I couldn't verify your identity with the details provided, so I'm unable to continue with this request here. Please contact your care team for help.",
   unavailable:
     "I still can't verify your identity because our systems are unavailable, so I'm unable to continue with this request here. Please contact your care team for help.",
   // Reply to any message after verification has ended the conversation.

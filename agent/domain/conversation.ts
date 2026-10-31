@@ -30,6 +30,8 @@ export interface AuthenticationSession {
   identityPrompt?: {
     fields: (keyof IdentityFactors)[];
     unansweredTurns: number;
+    // Set when asking to correct details that matched no patient.
+    afterFailedMatch?: boolean;
   };
 }
 

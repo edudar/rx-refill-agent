@@ -39,24 +39,47 @@ export interface RefillGate {
 
 // Every EHR write goes through here. The gate re-reads the clock, medication,
 // and labs, re-applies the clinical rules, and submits at most once per call.
-// It keeps no state: repeats within a conversation are prevented by the phase
-// machine (a submitted or uncertain refill ends the conversation), and turns for
-// one conversation are serialized. Nothing carries over between conversations,
-// because the EHR offers no refill history to tell a duplicate from a new request.
+// It keeps no record of outcomes: repeats within a conversation are prevented
+// by the phase machine (a submitted or uncertain refill ends the conversation),
+// and nothing carries over between conversations, because the EHR offers no
+// refill history to tell a duplicate from a new request.
+//
+// The pharmacy belongs to the patient, not the conversation, so the review,
+// pharmacy update, and submission run one patient at a time in this process.
+// Otherwise two conversations could interleave setPharmacy(A), setPharmacy(B),
+// and both submissions, sending A's refill to B.
 export function createRefillGate(options: { ehr: EhrClient }): RefillGate {
   const { ehr } = options;
+  const inFlight = new Map<string, Promise<RefillGateOutcome>>();
   return {
     async submit(conversation, order) {
       if (order.patientId !== conversation.patient.patientId)
         return { status: "not_authorized" };
-      try {
-        return await submitChecked(ehr, order);
-      } catch {
-        // Unreachable by design; if it happens, assume the refill may have been sent.
-        return { status: "submission_unknown", pharmacyChanged: false };
-      }
+      return oneAtATime(inFlight, order.patientId, async () => {
+        try {
+          return await submitChecked(ehr, order);
+        } catch {
+          // Unreachable by design; if it happens, assume the refill may have been sent.
+          return { status: "submission_unknown", pharmacyChanged: false };
+        }
+      });
     },
   };
+}
+
+// Runs after any earlier call for the same key; the entry is removed once idle.
+function oneAtATime(
+  inFlight: Map<string, Promise<RefillGateOutcome>>,
+  key: string,
+  run: () => Promise<RefillGateOutcome>,
+) {
+  const previous = inFlight.get(key) ?? Promise.resolve();
+  const next = previous.then(run, run);
+  inFlight.set(key, next);
+  void next.finally(() => {
+    if (inFlight.get(key) === next) inFlight.delete(key);
+  });
+  return next;
 }
 
 async function submitChecked(

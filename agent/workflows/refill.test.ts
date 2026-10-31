@@ -716,3 +716,40 @@ test("asked to just pick a pharmacy, the agent offers the current one and a yes 
   assert.match(done.text, /submitted to Mission Rx/);
   assert.deepEqual(f.writes(), ["submitRefill"]);
 });
+
+test("a stated location that differs from a presented branch is looked up, not confirmed", async () => {
+  const f = fixture({
+    understanding: {
+      "Switch to Bay Pharmacy.": {
+        intent: "change_pharmacy",
+        pharmacyName: "Bay Pharmacy",
+      },
+      "Yes, send it to Bay Pharmacy at 999 Other St.": {
+        intent: "confirm",
+        pharmacyName: "Bay Pharmacy",
+        pharmacyLocation: "999 Other St",
+      },
+      "Yes, Bay Pharmacy at 123 Market St.": {
+        intent: "confirm",
+        pharmacyName: "Bay Pharmacy",
+        pharmacyLocation: "123 Market St.",
+      },
+    },
+  });
+  await f.send("intent:Lisinopril");
+  await f.send("identity");
+  await f.send("Switch to Bay Pharmacy.");
+  const searches = f.calls.filter((name) => name === "search").length;
+  const other = await f.send("Yes, send it to Bay Pharmacy at 999 Other St.");
+  assert.equal(other.state, "in_progress");
+  assert.equal(
+    f.calls.filter((name) => name === "search").length,
+    searches + 1,
+    "the stated address triggered a directory lookup",
+  );
+  assert.match(other.text, /I found Bay Pharmacy \(123 Market St/);
+  assert.deepEqual(f.writes(), [], "a different address is never submitted");
+  const matching = await f.send("Yes, Bay Pharmacy at 123 Market St.");
+  assert.equal(matching.state, "complete");
+  assert.deepEqual(f.writes(), ["setPharmacy", "submitRefill"]);
+});

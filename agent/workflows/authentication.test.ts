@@ -394,6 +394,27 @@ test("failed match permits corrections but never fetches a record early", async 
   assert.equal(f.matches.length, 2);
 });
 
+test("resending details that matched no one escalates instead of looping", async () => {
+  const f = fixture(
+    { all: identity, same: {}, why: { isQuestion: true } },
+    { match: async () => ({ count: 0, patientId: null }) },
+  );
+  assert.equal((await f.flow("one", "all")).state, "in_progress");
+  assert.equal((await f.flow("one", "why")).state, "in_progress");
+  assert.equal((await f.flow("one", "same")).state, "in_progress");
+  const ended = await f.flow("one", "same");
+  assert.equal(ended.state, "escalated");
+  assert.match(
+    ended.messages[0].text,
+    /couldn't verify your identity with the details provided/,
+  );
+  assert.equal(
+    f.matches.length,
+    1,
+    "unchanged details are never matched again",
+  );
+});
+
 test("ambiguous match asks for optional phone digits and waits for a unique match", async () => {
   const f = fixture(
     { all: identity, phone: { phoneLast4: "1234" } },

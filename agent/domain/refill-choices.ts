@@ -66,3 +66,19 @@ export function findNamedPharmacy<T extends { name: string }>(
   });
   return matches.length === 1 ? matches[0] : undefined;
 }
+
+function normalizeAddress(text: string) {
+  return text.toLowerCase().replace(/[.,#]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// A stated location matches when the address contains it ("123 Market St" or
+// "San Francisco"), or it contains the address's street line.
+export function matchesLocation(address: string, location: string) {
+  const area = normalizeAddress(location);
+  const street = normalizeAddress(address.split(",")[0]);
+  return (
+    !!area &&
+    (normalizeAddress(address).includes(area) ||
+      (!!street && area.includes(street)))
+  );
+}

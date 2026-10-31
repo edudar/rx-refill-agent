@@ -89,9 +89,10 @@ Verification also ends instead of looping. Once a required detail has been reque
 the first non-answer gets an explanation of why it is needed, and a second consecutive
 non-answer (a refusal, an off-topic message, or a reply without the detail) escalates
 with fixed wording that names the missing detail. Questions, such as why a detail is
-needed, do not count. A second consecutive verification failure (a service outage, or a
-record whose demographics disagree with the match) escalates instead of asking the
-patient to retry again.
+needed, do not count. Resending details that already matched no patient counts as a
+non-answer too, so a second unchanged resend escalates instead of looping. A second
+consecutive verification failure (a service outage, or a record whose demographics
+disagree with the match) escalates instead of asking the patient to retry again.
 
 DOBs may use month names or abbreviations (`March 12, 1988`, `12 Mar 1988`), year-first
 dates (`1988/3/12`), or unambiguous numeric dates (`12/31/1988`, `31/12/1988`). The model
@@ -156,8 +157,11 @@ confirmation; several are listed as numbered options (up to five); none asks for
 name or address. Asked to "just pick one", the agent never chooses a new pharmacy, but
 offers the one on file, which a plain "yes" then confirms.
 
-**Confirmation.** Only a destination already shown to the patient can be confirmed. A
-"yes" confirms the proposal; "keep Mission Rx and submit" confirms a presented
+**Confirmation.** Only a destination already shown to the patient can be confirmed, and
+a location the patient states must match that destination's known address; otherwise
+the directory is searched and the result proposed with its address, so "Bay Pharmacy at
+999 Other St" never confirms a different Bay Pharmacy branch. A "yes" confirms the
+proposal; "keep Mission Rx and submit" confirms a presented
 pharmacy directly; "change to Bay Pharmacy and submit" for a pharmacy not yet shown only
 proposes it. Confirmation submits through the refill gate. Cancelling completes the
 conversation without writes.
@@ -233,7 +237,8 @@ verified conversation and the exact medication and pharmacy the patient confirme
    unless that update succeeded;
 4. submits once and reports the outcome; it never throws.
 
-The gate keeps no state. Repeats within a conversation are prevented by its phase: a
+The gate keeps no record of outcomes. Repeats within a conversation are prevented by
+its phase: a
 submitted, uncertain, or escalated refill ends the conversation, later messages get its
 stored follow-up, and turns for one conversation are serialized. Separate conversations
 are independent requests, even for the same patient and medication: the EHR API has no
@@ -241,6 +246,12 @@ refill history, so the agent cannot tell a duplicate from a new request, and mem
 kept across conversations would make one conversation's outcome depend on another's.
 Telling duplicates apart belongs to the EHR or pharmacy, for example with an
 idempotency key or recent-refill lookup.
+
+The pharmacy on file belongs to the patient, not the conversation, so the gate runs the
+review, pharmacy update, and submission for one patient at a time. Without that, two
+conversations could interleave `setPharmacy(A)`, `setPharmacy(B)`, and both
+submissions, sending A's refill to B. The serialization is in-process only and holds no
+data once the writes finish.
 
 EHR and pharmacy clients (`json-service.ts`) classify failures by whether the service
 could have acted: `rejected` (4xx), `unavailable` (5xx), `no_response`, and
@@ -407,6 +418,8 @@ their owning module.
 - Conversation state is in memory and lost on restart.
 - Nothing prevents two separate conversations from each submitting the same refill;
   that needs EHR-side deduplication the API does not offer.
+- Per-patient write serialization covers one agent process; several agent instances
+  would need a shared lock or EHR-side pharmacy-per-refill routing.
 - Escalation sets the `escalated` state with fixed handoff wording; no external
   handoff or ticket is created, and no structured audit record is written.
 - Refill-phase clarifications use fixed wording rather than model phrasing, and all

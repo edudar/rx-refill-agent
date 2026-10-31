@@ -128,9 +128,13 @@ function countUnanswered({ conversation, question }: AuthenticationTurn) {
 
 function unansweredLimit({ conversation }: AuthenticationTurn) {
   const prompt = conversation.identityPrompt;
-  return prompt && prompt.unansweredTurns >= MAX_UNANSWERED_REQUESTS
-    ? escalate(conversation, identityEscalation.unanswered(prompt.fields))
-    : undefined;
+  if (!prompt || prompt.unansweredTurns < MAX_UNANSWERED_REQUESTS) return;
+  return escalate(
+    conversation,
+    prompt.afterFailedMatch
+      ? identityEscalation.unverified
+      : identityEscalation.unanswered(prompt.fields),
+  );
 }
 
 // Offers both readings of an ambiguous numeric DOB instead of a generic retry.
@@ -348,6 +352,9 @@ function repeatFailedVerification(
     countUnanswered(turn);
     return decisionFor(turn, "request_disambiguation", ["phoneLast4"]);
   }
+  // Resending details that already matched no one is a non-answer to the
+  // correction request, so it counts toward the same limit.
+  countUnanswered(turn);
   return decisionFor(turn, "verification_failed", [...required]);
 }
 
@@ -367,6 +374,11 @@ function recordFailedMatch(
     };
     return decisionFor(turn, "request_disambiguation", ["phoneLast4"]);
   }
+  conversation.identityPrompt = {
+    fields: [...required],
+    unansweredTurns: 0,
+    afterFailedMatch: true,
+  };
   return decisionFor(turn, "verification_failed", [...required]);
 }
 

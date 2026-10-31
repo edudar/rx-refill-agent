@@ -251,3 +251,56 @@ test("the gate keeps no state between conversations", async () => {
   assert.equal((await gate.submit(verified(), order)).status, "submitted");
   assert.equal(f.calls.filter((call) => call === "submitRefill").length, 2);
 });
+
+test("concurrent submissions for one patient each go to their own confirmed pharmacy", async () => {
+  const f = fakeEhr();
+  const destinations: (string | undefined)[] = [];
+  const submitRefill = f.ehr.submitRefill;
+  f.ehr.submitRefill = async (patientId, medId) => {
+    destinations.push(f.state.pharmacy?.pharmacyId);
+    return submitRefill(patientId, medId);
+  };
+  // Hold the first review open so the second submission would interleave.
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const getTime = f.ehr.getTime;
+  let first = true;
+  f.ehr.getTime = async () => {
+    if (first) {
+      first = false;
+      await held;
+    }
+    return getTime();
+  };
+  const gate = createRefillGate({ ehr: f.ehr });
+  const toA = gate.submit(verified(), { ...order, pharmacyId: "ph-a" });
+  const toB = gate.submit(verified(), { ...order, pharmacyId: "ph-b" });
+  release();
+  await Promise.all([toA, toB]);
+  assert.deepEqual(destinations, ["ph-a", "ph-b"]);
+});
+
+test("submissions for different patients are not held up by each other", async () => {
+  const f = fakeEhr();
+  let release: () => void = () => {};
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const getTime = f.ehr.getTime;
+  f.ehr.getTime = async () => {
+    await held;
+    return getTime();
+  };
+  const gate = createRefillGate({ ehr: f.ehr });
+  const slow = gate.submit(verified(), order);
+  f.ehr.getTime = getTime;
+  const other = await gate.submit(verified("p-2"), {
+    ...order,
+    patientId: "p-2",
+  });
+  assert.equal(other.status, "submitted");
+  release();
+  assert.equal((await slow).status, "submitted");
+});

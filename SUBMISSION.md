@@ -64,8 +64,11 @@ reports the first time it answers. In the 2026-10-30 runs the API reported
   instead of asking again.
 - **One write path.** A gate re-reads the record and re-applies the rules, updates the
   pharmacy only when the confirmed destination differs, and submits only after that
-  update succeeds. It keeps no state, so conversations never affect each other; a
-  submitted or uncertain refill ends its conversation, which prevents repeats.
+  update succeeds. It keeps no record of outcomes, so conversations never affect each
+  other's results; a submitted or uncertain refill ends its conversation, which prevents
+  repeats. Because the pharmacy belongs to the patient, writes for one patient run one at
+  a time, so concurrent conversations cannot send a refill to another conversation's
+  pharmacy.
 - **Fixed wording for anything that matters.** Clinical declines, proposals, submission
   results, outages, verification, handoffs, and follow-ups after an ending are templates
   that claim only what happened, in plain language with readable dates and a next step
