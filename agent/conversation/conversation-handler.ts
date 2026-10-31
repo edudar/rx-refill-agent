@@ -26,7 +26,7 @@ const MAX_STEPS_PER_TURN = 4;
 
 export interface ConversationSteps {
   authenticating: ConversationStep<AuthenticatingConversation>;
-  verified?: ConversationStep<VerifiedConversation>;
+  verified: ConversationStep<VerifiedConversation>;
 }
 
 interface ConversationHandlerOptions {
@@ -98,23 +98,9 @@ function runStep(
     case "authenticating":
       return steps.authenticating(conversation, turn);
     case "verified":
-      return (steps.verified ?? refillUnavailable)(conversation, turn);
+      return steps.verified(conversation, turn);
   }
 }
-
-// Replace this step with the refill workflow when it is implemented.
-const refillUnavailable: ConversationStep<VerifiedConversation> = async (
-  conversation,
-) => ({
-  conversation,
-  messages: [
-    {
-      from: "agent",
-      text: "Prescription selection and refill processing are not available yet.",
-    },
-  ],
-  next: "reply",
-});
 
 function endedConversation(conversation: EndedConversation): TurnOutcome {
   return {

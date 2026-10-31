@@ -22,6 +22,15 @@ const patient: PatientRecord = {
   zip: "94107",
 };
 
+// For tests that stop at authentication; the refill workflow has its own tests.
+const refillStub: ConversationStep<VerifiedConversation> = async (
+  conversation,
+) => ({
+  conversation,
+  messages: [{ from: "agent", text: "Refill step." }],
+  next: "reply",
+});
+
 function agent(text: string): AgentMessage {
   return { from: "agent", text };
 }
@@ -77,16 +86,6 @@ test("verification hands the same turn to the next phase, then routes later turn
   assert.equal("factors" in (stored ?? {}), false);
 });
 
-test("without a refill workflow the verified phase replies with a placeholder", async () => {
-  const handleTurn = createConversationHandler({
-    steps: { authenticating: verify() },
-  });
-  const reply = await handleTurn("one", "identity details");
-  assert.equal(reply.state, "in_progress");
-  assert.equal(reply.messages[0].text, "Verified.");
-  assert.match(reply.messages[1].text, /not available yet/);
-});
-
 test("a pending refill intent survives the transition to the verified phase", async () => {
   let received: VerifiedConversation | undefined;
   const handleTurn = createConversationHandler({
@@ -119,6 +118,7 @@ test("a failed turn leaves the stored conversation unchanged", async () => {
   let fail = true;
   const handleTurn = createConversationHandler({
     steps: {
+      verified: refillStub,
       authenticating: async (conversation) => {
         seen.push(structuredClone(conversation));
         conversation.factors.zip = "94107";
@@ -140,6 +140,7 @@ test("a failed turn leaves the stored conversation unchanged", async () => {
 test("steps must change phase to continue and must produce a reply", async () => {
   const stalled = createConversationHandler({
     steps: {
+      verified: refillStub,
       authenticating: async (conversation) => ({
         conversation,
         messages: [],
@@ -150,6 +151,7 @@ test("steps must change phase to continue and must produce a reply", async () =>
   await assert.rejects(stalled("one", "hello"), /without a transition/);
   const silent = createConversationHandler({
     steps: {
+      verified: refillStub,
       authenticating: async (conversation) => ({
         conversation,
         messages: [],
@@ -164,6 +166,7 @@ test("keeps a bounded recent dialogue for response generation", async () => {
   let session: Conversation | undefined;
   const handleTurn = createConversationHandler({
     steps: {
+      verified: refillStub,
       authenticating: async (conversation) => {
         session = conversation;
         assert.ok(conversation.history.length <= 12);
@@ -272,7 +275,10 @@ test("expires conversations at 24 hours from creation despite recent activity", 
   let authentications = 0;
   const handleTurn = createConversationHandler({
     now: () => clock,
-    steps: { authenticating: verify(() => authentications++) },
+    steps: {
+      authenticating: verify(() => authentications++),
+      verified: refillStub,
+    },
   });
   await handleTurn("one", "identity details");
   clock = 24 * 60 * 60 * 1_000 - 1;
@@ -288,7 +294,10 @@ test("at capacity evicts the least recently used idle conversation", async () =>
   let authentications = 0;
   const handleTurn = createConversationHandler({
     now: () => clock,
-    steps: { authenticating: verify(() => authentications++) },
+    steps: {
+      authenticating: verify(() => authentications++),
+      verified: refillStub,
+    },
   });
   for (let index = 0; index < 100; index++) {
     clock++;
@@ -314,6 +323,7 @@ test("does not evict in-flight state when all 100 conversations are busy", async
   let authentications = 0;
   const handleTurn = createConversationHandler({
     steps: {
+      verified: refillStub,
       authenticating: async (conversation, turn) => {
         authentications++;
         await gate;

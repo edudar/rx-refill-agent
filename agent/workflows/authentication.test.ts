@@ -36,7 +36,13 @@ function createFlow(
             throw new Error("Simulated renderer outage");
           }),
       }),
-      verified: options.verified,
+      verified:
+        options.verified ??
+        (async (conversation) => ({
+          conversation,
+          messages: [{ from: "agent", text: "Refill step." }],
+          next: "reply",
+        })),
     },
     now: options.now,
   });

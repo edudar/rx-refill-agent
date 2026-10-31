@@ -2,8 +2,21 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createConversationHandler } from "./conversation-handler.js";
 import { createConsoleConversationLogger } from "./conversation-logger.js";
-import type { AgentReply } from "../contracts/conversation.js";
+import type {
+  AgentReply,
+  ConversationStep,
+} from "../contracts/conversation.js";
+import type { VerifiedConversation } from "../domain/conversation.js";
 import type { ConversationLogEvent } from "../contracts/logging.js";
+
+// For tests that stop at authentication; the refill workflow has its own tests.
+const refillStub: ConversationStep<VerifiedConversation> = async (
+  conversation,
+) => ({
+  conversation,
+  messages: [{ from: "agent", text: "Refill step." }],
+  next: "reply",
+});
 
 const reply: AgentReply = {
   messages: [
@@ -20,6 +33,7 @@ test("logs patient text and every agent reply with correlated IDs and timing", a
     logger: createConsoleConversationLogger((line) => lines.push(line)),
     now: () => clock,
     steps: {
+      verified: refillStub,
       authenticating: async (conversation) => {
         clock += 25;
         return { conversation, messages: reply.messages, next: "reply" };
@@ -51,6 +65,7 @@ test("logs failed turns without leaking exception details or swallowing the erro
   const handleTurn = createConversationHandler({
     logger: (event) => events.push(event),
     steps: {
+      verified: refillStub,
       authenticating: async () => {
         throw failure;
       },
@@ -74,6 +89,7 @@ test("a failing logger does not prevent the workflow from returning its reply", 
       throw new Error("logging unavailable");
     },
     steps: {
+      verified: refillStub,
       authenticating: async (conversation) => ({
         conversation,
         messages: reply.messages,
