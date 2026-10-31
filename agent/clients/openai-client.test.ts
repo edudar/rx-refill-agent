@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import OpenAI from "openai";
 import { createIdentityExtractor } from "./identity-extractor.js";
 import {
   createModelFailureLogger,
@@ -54,6 +55,7 @@ function callers(fetch: typeof globalThis.fetch, failures: ModelFailure[]) {
     reasoning: { effort: "none" as const },
     fetch,
     onModelFailure: (failure: ModelFailure) => failures.push(failure),
+    sleep: async () => {},
   };
   return [
     () =>
@@ -88,15 +90,33 @@ test("every model call reports API failures by status and enum, never by message
   const failures: ModelFailure[] = [];
   for (const call of callers(async () => rateLimited(), failures))
     await assert.rejects(call(), /Rate limit/);
+  // Extraction and interpretation retry once; generation falls back instead.
   assert.deepEqual(
-    failures.map(({ stage }) => stage),
-    ["Identity extraction", "Response generation", "Refill interpretation"],
+    failures.map(({ stage, attempt, willRetry }) => [
+      stage,
+      attempt,
+      willRetry,
+    ]),
+    [
+      ["Identity extraction", 1, true],
+      ["Identity extraction", 2, false],
+      ["Response generation", 1, false],
+      ["Refill interpretation", 1, true],
+      ["Refill interpretation", 2, false],
+    ],
   );
   for (const failure of failures)
     assert.deepEqual(
-      { ...failure, stage: undefined },
+      {
+        ...failure,
+        stage: undefined,
+        attempt: undefined,
+        willRetry: undefined,
+      },
       {
         stage: undefined,
+        attempt: undefined,
+        willRetry: undefined,
         error: "RateLimitError",
         status: 429,
         type: "requests",
@@ -128,9 +148,132 @@ test("incomplete responses and connection failures are reported by kind", async 
       stage: "Identity extraction",
       error: "ModelIncompleteError",
       reason: "max_output_tokens",
+      attempt: 1,
+      willRetry: false,
     },
-    { stage: "Refill interpretation", error: "APIConnectionError" },
+    {
+      stage: "Refill interpretation",
+      error: "APIConnectionError",
+      attempt: 1,
+      willRetry: true,
+    },
+    {
+      stage: "Refill interpretation",
+      error: "APIConnectionError",
+      attempt: 2,
+      willRetry: false,
+    },
   ]);
+});
+
+const okResponse = () =>
+  Response.json({
+    id: "resp-test",
+    object: "response",
+    created_at: 0,
+    model: "test-model",
+    status: "completed",
+    output: [
+      {
+        type: "message",
+        id: "msg-test",
+        role: "assistant",
+        status: "completed",
+        content: [
+          {
+            type: "output_text",
+            text: JSON.stringify({
+              outOfScope: false,
+              intent: "confirm",
+              medicationMention: null,
+              optionNumber: null,
+              pharmacyName: null,
+              pharmacyLocation: null,
+              keepCurrentPharmacy: false,
+            }),
+            annotations: [],
+          },
+        ],
+      },
+    ],
+  });
+
+test("a transient failure is retried once after a short wait and can still succeed", async () => {
+  const failures: ModelFailure[] = [];
+  const waits: number[] = [];
+  let calls = 0;
+  const interpret = createRefillInterpreter({
+    apiKey: "test-key",
+    model: "test-model",
+    reasoning: { effort: "none" },
+    onModelFailure: (failure) => failures.push(failure),
+    sleep: async (ms) => {
+      waits.push(ms);
+    },
+    fetch: async () => {
+      calls++;
+      if (calls === 1) throw new TypeError("socket hang up");
+      return okResponse();
+    },
+  });
+  const result = await interpret({
+    text: "yes",
+    question: "confirm_refill",
+    lastPrompt: "",
+  });
+  assert.equal(result.intent, "confirm");
+  assert.equal(calls, 2);
+  assert.equal(waits.length, 1);
+  assert.ok(waits[0] >= 200 && waits[0] <= 600, `jittered wait ${waits[0]}`);
+  assert.deepEqual(
+    failures.map(({ attempt, willRetry }) => [attempt, willRetry]),
+    [[1, true]],
+  );
+});
+
+test("retries honour a short Retry-After, skip long ones, and never retry permanent errors", async () => {
+  const outcome = async (response: () => Response) => {
+    const waits: number[] = [];
+    let calls = 0;
+    await assert.rejects(
+      reportingFailures(
+        "Stage",
+        undefined,
+        async () => {
+          calls++;
+          const res = response();
+          throw OpenAI.APIError.generate(
+            res.status,
+            await res.json(),
+            "failed",
+            res.headers,
+          );
+        },
+        { retries: 1, sleep: async (ms) => void waits.push(ms) },
+      ),
+    );
+    return { calls, waits };
+  };
+  const status =
+    (code: number, headers: Record<string, string> = {}) =>
+    () =>
+      Response.json({ error: { message: "x" } }, { status: code, headers });
+  assert.deepEqual(await outcome(status(429, { "retry-after-ms": "750" })), {
+    calls: 2,
+    waits: [750],
+  });
+  assert.deepEqual(await outcome(status(429, { "retry-after": "1" })), {
+    calls: 2,
+    waits: [1_000],
+  });
+  assert.deepEqual(
+    await outcome(status(429, { "retry-after": "30" })),
+    { calls: 1, waits: [] },
+    "a wait longer than the budget allows is not attempted",
+  );
+  for (const permanent of [400, 401, 404])
+    assert.deepEqual(await outcome(status(permanent)), { calls: 1, waits: [] });
+  assert.equal((await outcome(status(503))).calls, 2);
 });
 
 test("a failing listener never replaces the original model failure", async () => {

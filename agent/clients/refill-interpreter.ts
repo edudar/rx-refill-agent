@@ -71,5 +71,7 @@ export function createRefillInterpreter(
         options.onModelResolved?.(response.model);
         return refillUnderstandingSchema.parse(response.output_parsed);
       },
+      // Progress depends on this call, so a transient failure gets one retry.
+      { retries: 1, sleep: options.sleep },
     );
 }

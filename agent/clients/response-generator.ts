@@ -80,5 +80,8 @@ export function createResponseGenerator(
         options.onModelResolved?.(response.model);
         return generatedResponseSchema.parse(response.output_parsed);
       },
+      // A failure already falls back to fixed wording, so retrying would only add
+      // latency for nicer phrasing.
+      { retries: 0 },
     );
 }

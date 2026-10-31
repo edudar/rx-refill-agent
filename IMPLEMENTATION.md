@@ -273,8 +273,20 @@ does not guarantee a 503 was not applied. Retries are always the patient's expli
 
 ## Configuration details
 
-Model calls use the OpenAI Responses API with Structured Outputs, `store: false`, a
-15-second timeout, and no automatic retries. Visible output caps are 512 tokens for
+Model calls use the OpenAI Responses API with Structured Outputs and `store: false`.
+Each attempt times out after 8 seconds: typical calls take a few seconds, so a call
+still waiting has usually stalled, and a fresh attempt helps more than waiting longer.
+Identity extraction and refill interpretation block progress, so a transient failure
+(connection error, timeout, 408, 409, 429, or 5xx) gets one retry after a 200–600 ms
+jittered wait, or after the server's `Retry-After` when it is at most 2 seconds; a
+longer requested wait is not attempted. Bad requests, bad keys, and incomplete or
+malformed output are never retried. Response generation is not retried: its failure
+already falls back to fixed wording. Model calls only read, so repeating one is safe;
+retries live in `reportingFailures` rather than the SDK, so each attempt is logged.
+The worst case for one authentication turn is about 17 seconds of extraction, 8 of
+generation, and up to 10 of EHR calls, within the 45 seconds conformance allows each
+request. If the retry also fails, the patient gets the usual outage reply, and a second
+consecutive outage escalates. Visible output caps are 512 tokens for
 extraction and interpretation and 1,024 for response generation. Reasoning tokens
 count against `max_output_tokens`, so any effort other than `none` adds a 4,096-token
 allowance to each cap. Incomplete responses report the API's reason without model or
@@ -294,7 +306,8 @@ exception contents are not logged. Logging failures never change replies.
 
 Every failed model call also logs a `model_failed` line, whatever the conversation
 logging setting: the stage (identity extraction, response generation, or refill
-interpretation), the model, the error class, and, when present, the HTTP status, the
+interpretation), the model, the attempt number and whether it will be retried, the
+error class, and, when present, the HTTP status, the
 OpenAI error `type` and `code`, the incomplete reason, the request ID, and any
 `x-ratelimit-*` response headers under `rateLimit` (for example `limit-requests`,
 `remaining-requests`, `reset-requests`). A rate limit appears as `RateLimitError` with

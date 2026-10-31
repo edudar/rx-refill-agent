@@ -70,5 +70,7 @@ export function createIdentityExtractor(
         options.onModelResolved?.(response.model);
         return identityUpdateSchema.parse(response.output_parsed);
       },
+      // Progress depends on this call, so a transient failure gets one retry.
+      { retries: 1, sleep: options.sleep },
     );
 }
