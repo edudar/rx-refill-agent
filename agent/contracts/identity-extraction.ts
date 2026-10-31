@@ -1,8 +1,10 @@
 import { z } from "zod";
 import type { IdentityFactors } from "../domain/identity.js";
+import { safetySignalShape } from "./safety.js";
 
 // Raw proposals may be incomplete or invalid; domain validators decide what to keep.
 export const identityUpdateSchema = z.object({
+  ...safetySignalShape,
   outOfScope: z.boolean(),
   // A question (such as why a detail is needed) is not a non-answer.
   isQuestion: z.boolean(),

@@ -52,6 +52,8 @@ const directory: PharmacyListing[] = [
 ];
 
 const understood: RefillUnderstanding = {
+  urgentSafety: "none",
+  clinicalQuestion: false,
   outOfScope: false,
   intent: "other",
   medicationMention: null,
@@ -752,4 +754,54 @@ test("a stated location that differs from a presented branch is looked up, not c
   const matching = await f.send("Yes, Bay Pharmacy at 123 Market St.");
   assert.equal(matching.state, "complete");
   assert.deepEqual(f.writes(), ["setPharmacy", "submitRefill"]);
+});
+
+test("an emergency after verification escalates with crisis numbers before any read or write", async () => {
+  for (const [urgentSafety, number] of [
+    ["medical_emergency", /call 911/],
+    ["mental_health_crisis", /call or text 988/],
+  ] as const) {
+    const f = fixture({
+      understanding: {
+        urgent: { urgentSafety, intent: "confirm" },
+        yes: { intent: "confirm" },
+      },
+    });
+    await f.send("intent:Lisinopril");
+    await f.send("identity");
+    const reads = f.calls.length;
+    const reply = await f.send("urgent");
+    assert.equal(reply.state, "escalated");
+    assert.match(reply.text, number);
+    assert.match(reply.text, /nothing was submitted/);
+    assert.equal(f.calls.length, reads, "no service calls after the emergency");
+    const later = await f.send("yes");
+    assert.equal(later.state, "escalated");
+    assert.match(later.text, /call 911.*call or text 988/s);
+    assert.deepEqual(f.writes(), []);
+  }
+});
+
+test("a clinical question after verification gets a referral and keeps the refill where it was", async () => {
+  const f = fixture({
+    understanding: {
+      "Is it ok to take lisinopril with ibuprofen?": {
+        clinicalQuestion: true,
+        medicationMention: "lisinopril",
+      },
+      yes: { intent: "confirm" },
+    },
+  });
+  await f.send("intent:Lisinopril");
+  await f.send("identity");
+  const reads = f.calls.length;
+  const reply = await f.send("Is it ok to take lisinopril with ibuprofen?");
+  assert.equal(reply.state, "in_progress");
+  assert.match(
+    reply.text,
+    /^I can't give medical advice here, so please ask your pharmacist or care team about that\. Your Lisinopril 10mg refill can go to your current pharmacy, Mission Rx\./,
+  );
+  assert.equal(f.calls.length, reads, "the question did not move the refill");
+  assert.equal((await f.send("yes")).state, "complete");
+  assert.deepEqual(f.writes(), ["submitRefill"]);
 });

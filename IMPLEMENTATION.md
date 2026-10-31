@@ -119,6 +119,35 @@ A medication named before verification is kept as `pendingIntent` (latest mentio
 at most 100 characters). It is never sent to the EHR or matched against records before
 verification.
 
+## Safety
+
+Both extraction models (identity extraction and refill interpretation) classify every
+patient message with two shared fields (`agent/contracts/safety.ts`), using the same
+instructions (`agent/clients/safety-instructions.ts`):
+
+- `urgentSafety`: `medical_emergency` for a possible overdose or poisoning, even an
+  accidental one, or symptoms that may need emergency care now (chest pain, trouble
+  breathing, signs of a stroke, a severe allergic reaction, fainting, seizures, severe
+  bleeding); `mental_health_crisis` for thoughts of suicide, self-harm, or not wanting to
+  live, including planning to take too much medication on purpose; otherwise `none`.
+  When unsure, the model is told to choose the emergency; when both apply, the crisis.
+- `clinicalQuestion`: a request for medical advice, such as combining medications,
+  dosing, side effects, symptoms, or whether to take, stop, or change a medication.
+
+Both workflows check these first, before scope, identity, medication, or pharmacy
+handling, so they apply in every phase, including before identity is verified:
+
+- An urgent message ends the conversation as `escalated` with fixed wording from
+  `refill-messages.ts`: call 911 or go to the nearest emergency room (with Poison
+  Control's number for a possible overdose), or call or text 988 for a mental-health
+  crisis, and 911 if in immediate danger. No identity details, refill intent, reads, or
+  writes come from that message. Every later message gets a follow-up that repeats both
+  numbers.
+- A clinical question gets a fixed "I can't give medical advice here, so please ask your
+  pharmacist or care team about that", followed by the current question unchanged. It
+  accepts no identity details and never moves the refill forward. In the refill phase it
+  counts as a turn without progress.
+
 ## Refill workflow
 
 `agent/workflows/refill.ts` handles the `verified` phase. On the hand-off turn it skips
@@ -382,6 +411,7 @@ runs every scenario against an idle fake agent, which every workflow case must d
 | Pharmacies        | `change-pharmacy`, `pharmacy-search-ambiguous`, `pharmacy-search-no-match`, `withdraw-pharmacy-change`, `no-current-pharmacy`                                                                       |
 | Conversation      | `cancel-refill`, `unrelated-code-request`, `unrelated-web-requests`, `bypass-authentication`, `bypass-clinical-rule`, `premature-confirmation`, `no-duplicate-submission`, `conversation-isolation` |
 | Repeat requests   | `repeat-request-new-conversation`, `concurrent-same-patient`                                                                                                                                        |
+| Safety            | `overdose-*`, `self-harm-*`, `symptom-emergency-*`, `clinical-question-*`, each `-before-verification` and `-after-verification` (8)                                                                |
 | Outages           | `ehr-lookup-outage`, `pharmacy-update-failure`, `refill-submission-failure`                                                                                                                         |
 
 Every scenario is independent of the others and of their order: each gets a restored
@@ -424,10 +454,16 @@ their owning module.
 
 ## Known limitations
 
-- Live conformance passed 53/53 on 2026-10-30 (`gpt-6-luna`, effort `none`) against the
-  current code, as it did before the endings and wording changes. Model output varies
-  between runs, so two passes do not establish stability, and reply checks are lexical
-  rather than semantic. Unit tests use simulated model output.
+- Live conformance passed all 61 scenarios on 2026-10-30 (`gpt-6-luna`, effort
+  `none`) against the current code; earlier runs of the 53 scenarios registered at the
+  time also passed. Model output varies between runs, so passes do not establish
+  stability, and reply checks are lexical rather than semantic. Unit tests use simulated
+  model output.
+- Safety handling depends on the model's classification; a missed emergency gets an
+  ordinary reply. If the extraction call itself fails, the message cannot be screened and
+  the patient gets the usual "trouble" reply. Messages after a conversation has ended are
+  not screened: they get the stored follow-up, which repeats the emergency numbers only
+  when the conversation ended for an emergency. The numbers are US-only.
 - Conversation state is in memory and lost on restart.
 - Nothing prevents two separate conversations from each submitting the same refill;
   that needs EHR-side deduplication the API does not offer.

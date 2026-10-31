@@ -132,6 +132,19 @@ function continueRefill(
   understanding: RefillUnderstanding,
 ): Promise<RefillResult> | RefillResult {
   const { refill } = conversation;
+  // Safety comes first: an emergency ends the conversation before any read or
+  // write, and a clinical question never moves the refill forward.
+  if (understanding.urgentSafety !== "none")
+    return reply(
+      ended(conversation, "escalated", say.after.urgent()),
+      say.urgentHelp[understanding.urgentSafety],
+    );
+  if (understanding.clinicalQuestion)
+    return stalled(
+      conversation,
+      say.clinicalQuestion(reprompt(refill)),
+      "unanswered",
+    );
   if (understanding.outOfScope)
     return stalled(
       conversation,

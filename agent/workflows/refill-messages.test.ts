@@ -57,6 +57,10 @@ test("only success messages claim a refill was submitted", () => {
     say.after.cancelled(),
     say.after.closed(),
     say.ineligible(medication, labHold),
+    say.urgentHelp.medical_emergency,
+    say.urgentHelp.mental_health_crisis,
+    say.after.urgent(),
+    say.clinicalQuestion("Which prescription would you like to refill?"),
   ];
   for (const text of others) assert.doesNotMatch(text, submissionClaim, text);
 });

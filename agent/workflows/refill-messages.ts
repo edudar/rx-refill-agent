@@ -7,6 +7,7 @@ import type {
   IneligibilityReason,
 } from "../domain/refill-eligibility.js";
 import { formatDate } from "../utils/calendar-date.js";
+import type { UrgentSafety } from "../contracts/safety.js";
 
 // Fixed wording for every reply that states a clinical decision, a write, or a
 // handoff. Each sentence claims only what the application actually did.
@@ -208,8 +209,22 @@ export const confirmationDeclined = () =>
 export const closing = () =>
   "Okay. Nothing else was submitted. Thanks for reaching out.";
 
+// Emergencies stop the conversation in any phase, before any write.
+export const urgentHelp: Record<Exclude<UrgentSafety, "none">, string> = {
+  medical_emergency:
+    "This sounds like it could be a medical emergency. Please call 911 or go to the nearest emergency room now. If you may have taken too much of a medication, you can also call Poison Control at 1-800-222-1222. I've stopped this refill request, and nothing was submitted.",
+  mental_health_crisis:
+    "I'm really sorry you're feeling this way, and you don't have to face it alone. Please call or text 988 to reach the Suicide & Crisis Lifeline now, and if you're in immediate danger, call 911. I've stopped this refill request, and nothing was submitted.",
+};
+
+// The agent never gives medical advice; the current question follows unchanged.
+export const clinicalQuestion = (followUp: string) =>
+  `I can't give medical advice here, so please ask your pharmacist or care team about that. ${followUp}`;
+
 // Replies to any message after the conversation has ended.
 export const after = {
+  urgent: () =>
+    "If this is an emergency, please call 911. For a mental-health crisis, call or text 988. This refill request has been stopped; please start a new conversation when you're ready.",
   submitted: (medication: MedicationChoice, pharmacy: PharmacyChoice) =>
     `To confirm, your ${medication.name} refill was submitted to ${pharmacy.name} once, earlier in this conversation. There's nothing else you need to do; you can contact ${pharmacy.name} to check when it's ready.`,
   uncertain: (pharmacy: PharmacyChoice) =>

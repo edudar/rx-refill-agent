@@ -3,6 +3,8 @@ import test from "node:test";
 import { createRefillInterpreter } from "./refill-interpreter.js";
 
 const understanding = {
+  urgentSafety: "none",
+  clinicalQuestion: false,
   outOfScope: false,
   intent: "change_pharmacy",
   medicationMention: null,

@@ -16,7 +16,7 @@ OPENAI_API_KEY=... npm run agent    # agent on :5050
 
 `npm test` needs no credentials. Against `npm run mock`, `npm run conformance` runs only
 the starter script; serve the extended fixture with `npm run mock:conformance` to run all
-53 scenarios.
+61 scenarios.
 
 ## Environment
 
@@ -84,26 +84,34 @@ reports the first time it answers. In the 2026-10-30 runs the API reported
 - A 4xx refill failure is reported and may be retried. A 5xx, timeout, or unreadable
   response may hide an accepted refill, so it is never resent and the conversation
   escalates. Failed reads or pharmacy updates write no refill.
+- A possible overdose, a self-harm disclosure, or emergency symptoms end the conversation
+  as escalated in either phase, including before identity is verified, with fixed
+  wording: call 911, or call or text 988 for a mental-health crisis. Nothing is written.
+  Clinical questions get a fixed referral to a pharmacist or care team and never move
+  the refill forward. Both extraction models flag these on every message, and code acts
+  on them before anything else.
 - Unit tests (`npm test`) cover rule boundaries, every write outcome, turn
-  serialization, conversation endings, and wording guarantees. 53 conformance scenarios
-  cover identity, clinical, medication, pharmacy, conversation, repeat-request, and outage
-  cases (`IMPLEMENTATION.md`).
+  serialization, conversation endings, safety handling, and wording guarantees. 61
+  conformance scenarios cover identity, clinical, medication, pharmacy, conversation,
+  repeat-request, safety, and outage cases (`IMPLEMENTATION.md`).
 
 ## Status
 
-On 2026-10-30, `npm run conformance` passed all 53 scenarios against `gpt-6-luna` with
-reasoning effort `none`, both before and after the changes that escalate dead-end
-conversations and rewrite patient-facing replies; the latest run used the current code.
-Unit tests, type checking, and formatting also pass. Model output varies between runs,
-and conformance reply checks are lexical, so transcripts still deserve review.
+On 2026-10-30, `npm run conformance` passed all 61 scenarios (61 passed, 0 failed, 0
+skipped) against `gpt-6-luna` with reasoning effort `none`, using the current code with
+model retries, the review fixes, and safety handling. Earlier runs of the 53 scenarios
+registered at the time also passed in full. Unit tests, type checking, and formatting
+pass. Model output varies between runs, and conformance reply checks are lexical, so
+transcripts still deserve review.
 
-[`agent-dialogs.md`](agent-dialogs.md) holds the transcripts of that latest run (53
-scenarios, 56 conversations), and [`agent-dialogs-ratings.md`](agent-dialogs-ratings.md)
-rates each dialogue from 0 to 1 from the patient's seat, for a regular and an occasional
-patient, with a one-line reason. The averages are 0.83 and 0.81, up 0.11 and 0.12 from
-the run before the wording changes. The ratings are a separate review of the
-transcripts, not feedback from patients. State is in memory, and escalation does not create an
-external handoff. AI session transcripts are in `docs/ai-log/`. Strings shaped like API keys or
+[`agent-dialogs.md`](agent-dialogs.md) holds the transcripts of that run (61 scenarios, 64
+conversations), and [`agent-dialogs-ratings.md`](agent-dialogs-ratings.md) rates each
+dialogue from 0 to 1 from the patient's seat, for a regular and an occasional patient,
+with a one-line reason. The averages are 0.83 and 0.80. The ratings are a separate review
+of the transcripts, not feedback from patients.
+
+State is in memory, and escalation does not create an external handoff. AI session
+transcripts are in `docs/ai-log/`. Strings shaped like API keys or
 bearer tokens were redacted automatically and show as `[REDACTED]`. Every match was a
 placeholder or test value, such as `dev-pharmacy-key`; no real credential appears in the
 logs.

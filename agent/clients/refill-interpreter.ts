@@ -1,4 +1,5 @@
 import { zodTextFormat } from "openai/helpers/zod";
+import { safetyInstructions } from "./safety-instructions.js";
 import type { ModelConfig } from "../config.js";
 import {
   refillUnderstandingSchema,
@@ -38,7 +39,9 @@ optionNumber: the number of a numbered option the patient picks from lastPrompt 
 pharmacyName and pharmacyLocation: the pharmacy name and the address, street, or area the
 patient names (for example "Bay Pharmacy" and "123 Market St"); null when not given.
 keepCurrentPharmacy: true when the patient asks to keep or use their current or usual
-pharmacy without naming a different one.`;
+pharmacy without naming a different one.
+
+${safetyInstructions}`;
 
 export function createRefillInterpreter(
   options: ModelConfig & ModelCallOptions,

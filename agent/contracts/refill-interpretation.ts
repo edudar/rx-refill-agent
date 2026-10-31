@@ -1,8 +1,10 @@
 import { z } from "zod";
+import { safetySignalShape } from "./safety.js";
 
 // Proposals only: application code resolves names against the record and the
 // directory and decides whether anything is confirmed.
 export const refillUnderstandingSchema = z.object({
+  ...safetySignalShape,
   outOfScope: z.boolean(),
   intent: z.enum(["confirm", "decline", "change_pharmacy", "cancel", "other"]),
   medicationMention: z.string().nullable(),

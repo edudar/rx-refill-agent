@@ -8,6 +8,7 @@ import { medicationScenarios } from "./medications.js";
 import { pharmacyScenarios } from "./pharmacies.js";
 import { conversationScenarios } from "./conversation.js";
 import { repeatRequestScenarios } from "./repeat-requests.js";
+import { safetyScenarios } from "./safety.js";
 import { serviceFailureScenarios } from "./service-failures.js";
 
 // Extended scenarios use fixture patients, restore state between runs, and inspect
@@ -29,6 +30,7 @@ export const scenarios: readonly ConformanceScenario[] = [
     ...pharmacyScenarios,
     ...conversationScenarios,
     ...repeatRequestScenarios,
+    ...safetyScenarios,
   ]),
   ...requiring([...extendedHarness, "faults"], serviceFailureScenarios),
 ];

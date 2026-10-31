@@ -32,6 +32,7 @@ import {
   identityEscalation,
   responseFallback,
 } from "./response-fallback.js";
+import * as say from "./refill-messages.js";
 
 const required = ["firstName", "lastName", "dob", "zip"] as const;
 const verifiedMessage = "Thanks, your identity is verified.";
@@ -97,6 +98,16 @@ async function authenticate(
       lastPrompt: conversation.lastPrompt,
     }),
   );
+  // Safety comes first, even before identity is verified, and accepts no
+  // identity details or refill intent from the same message.
+  if (update.urgentSafety !== "none")
+    return escalate(
+      conversation,
+      say.urgentHelp[update.urgentSafety],
+      say.after.urgent(),
+    );
+  if (update.clinicalQuestion)
+    return reply(conversation, say.clinicalQuestion(identityFollowUp(turn)));
   turn.question = update.isQuestion;
   if (update.outOfScope) {
     countUnanswered(turn);
@@ -153,17 +164,25 @@ function dateOfBirthQuestion(
 function escalate(
   conversation: AuthenticatingConversation,
   text: string,
+  followUp = identityEscalation.afterwards,
 ): StepResult {
   return {
     conversation: {
       ...conversationBase(conversation),
       phase: "ended",
       outcome: "escalated",
-      followUp: identityEscalation.afterwards,
+      followUp,
     },
     messages: [{ from: "agent", text }],
     next: "reply",
   };
+}
+
+function reply(
+  conversation: AuthenticatingConversation,
+  text: string,
+): StepResult {
+  return { conversation, messages: [{ from: "agent", text }], next: "reply" };
 }
 
 function decisionFor(
@@ -243,7 +262,8 @@ function identityVerified(
   };
 }
 
-function redirectToRefill(turn: AuthenticationTurn): StepResult {
+// What to ask next after a fixed reply that collected nothing.
+function identityFollowUp(turn: AuthenticationTurn) {
   const { conversation } = turn;
   const missing = missingIdentityFields(conversation);
   // Before any refill or identity detail, invite a refill rather than ask for identity.
@@ -251,22 +271,19 @@ function redirectToRefill(turn: AuthenticationTurn): StepResult {
     conversation.pendingIntent ||
     conversation.identityPrompt ||
     Object.keys(conversation.factors).length;
-  const followUp = !started
-    ? "If you'd like a refill, tell me which medication and I'll get started."
-    : missing.length
-      ? responseFallback(decisionFor(turn, "request_identity", missing))
-      : "Let me know when you'd like to continue verifying your identity.";
-  // Hard scope redirects never invoke generation or accept identity updates.
-  return {
-    conversation: turn.conversation,
-    messages: [
-      {
-        from: "agent",
-        text: `I can help with prescription refills and pharmacy changes. ${followUp}`,
-      },
-    ],
-    next: "reply",
-  };
+  if (!started)
+    return "If you'd like a refill, tell me which medication and I'll get started.";
+  return missing.length
+    ? responseFallback(decisionFor(turn, "request_identity", missing))
+    : "Let me know when you'd like to continue verifying your identity.";
+}
+
+// Hard scope redirects never invoke generation or accept identity updates.
+function redirectToRefill(turn: AuthenticationTurn): StepResult {
+  return reply(
+    turn.conversation,
+    `I can help with prescription refills and pharmacy changes. ${identityFollowUp(turn)}`,
+  );
 }
 
 function recordRefillIntent(

@@ -50,6 +50,8 @@ function createFlow(
 
 const empty: IdentityUpdate = {
   outOfScope: false,
+  urgentSafety: "none",
+  clinicalQuestion: false,
   isQuestion: false,
 
   firstName: null,
@@ -738,4 +740,75 @@ test("out-of-scope messages cannot record a refill intent", async () => {
   await f.flow("one", "unrelated");
   await f.flow("one", "all");
   assert.equal(intent, undefined);
+});
+
+test("an emergency before verification escalates with crisis numbers and touches nothing", async () => {
+  for (const [urgentSafety, number] of [
+    ["medical_emergency", /call 911.*Poison Control at 1-800-222-1222/s],
+    ["mental_health_crisis", /call or text 988.*immediate danger, call 911/s],
+  ] as const) {
+    let generated = false;
+    const f = fixture(
+      {
+        opening: { medicationMention: "Lisinopril" },
+        urgent: { ...identity, urgentSafety, medicationMention: "Lisinopril" },
+        later: identity,
+      },
+      {},
+      async () => {
+        generated = true;
+        return { text: "Generated wording." };
+      },
+    );
+    await f.flow("one", "opening");
+    generated = false;
+    const reply = await f.flow("one", "urgent");
+    assert.equal(reply.state, "escalated");
+    assert.match(reply.messages[0].text, number);
+    assert.match(reply.messages[0].text, /nothing was submitted/);
+    assert.equal(generated, false, "safety replies are fixed text");
+    assert.equal(
+      f.matches.length,
+      0,
+      "identity in the same message is not used",
+    );
+    const later = await f.flow("one", "later");
+    assert.equal(later.state, "escalated");
+    assert.match(later.messages[0].text, /call 911.*call or text 988/s);
+    assert.equal(f.matches.length, 0);
+  }
+});
+
+test("a clinical question before verification gets a fixed referral and changes nothing", async () => {
+  let generated = false;
+  const f = fixture(
+    {
+      partial: { firstName: "Alice", lastName: "Nguyen", dob: identity.dob },
+      clinical: { clinicalQuestion: true, zip: "94107" },
+      zip: { zip: "94107" },
+    },
+    {},
+    async () => {
+      generated = true;
+      return { text: "Generated wording." };
+    },
+  );
+  await f.flow("one", "partial");
+  generated = false;
+  const reply = await f.flow("one", "clinical");
+  assert.equal(reply.state, "in_progress");
+  assert.match(
+    reply.messages[0].text,
+    /^I can't give medical advice here, so please ask your pharmacist or care team about that\. To verify your identity, please share your five-digit ZIP code\.$/,
+  );
+  assert.equal(generated, false);
+  assert.equal(
+    f.matches.length,
+    0,
+    "details in a clinical question are not applied",
+  );
+  assert.match(
+    (await f.flow("one", "zip")).messages[0].text,
+    /identity is verified/,
+  );
 });

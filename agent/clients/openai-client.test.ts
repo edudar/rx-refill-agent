@@ -184,6 +184,8 @@ const okResponse = () =>
             type: "output_text",
             text: JSON.stringify({
               outOfScope: false,
+              urgentSafety: "none",
+              clinicalQuestion: false,
               intent: "confirm",
               medicationMention: null,
               optionNumber: null,
