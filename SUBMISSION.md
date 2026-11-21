@@ -114,4 +114,4 @@ State is in memory, and escalation does not create an external handoff. AI sessi
 transcripts are in `docs/ai-log/`. Strings shaped like API keys or
 bearer tokens were redacted automatically and show as `[REDACTED]`. Every match was a
 placeholder or test value, such as `dev-pharmacy-key`; no real credential appears in the
-logs.
+logs. Company names and the starter commit's author were also redacted from the transcripts.
